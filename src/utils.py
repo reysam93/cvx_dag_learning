@@ -7,7 +7,7 @@ from pandas import DataFrame
 def is_dag(W):
     return nx.is_directed_acyclic_graph(nx.DiGraph(W))
 
-def create_dag(n_nodes, graph_type, edges, permute=True, edge_type='positive',w_range=(.5, 1.5)):
+def create_dag(n_nodes, graph_type, edges, permute=True, edge_type='positive', w_range=(.5, 1.5)):
     """
     edge_type cana be binary, positive, or negative 
     """    
