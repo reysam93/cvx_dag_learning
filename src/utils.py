@@ -3,6 +3,7 @@ from numpy import linalg as la
 import networkx as nx
 import time
 from pandas import DataFrame
+from IPython.display import display
 
 def is_dag(W):
     return nx.is_directed_acyclic_graph(nx.DiGraph(W))
@@ -155,13 +156,19 @@ def count_accuracy(W_bin_true, W_bin_est):
 
     return shd, tpr, fdr
 
-def display_results(exps_leg, metrics, agg='mean'):
+def display_results(exps_leg, metrics, agg='mean', file_name=None):
     mean_metric = {'leg': exps_leg}
     for key, value in metrics.items():
         if agg == 'median':
             mean_metric[key] = np.median(value, axis=0)
+        elif agg == 'std':
+            mean_metric[key] = np.std(value, axis=0)
         else:
             mean_metric[key] = np.mean(value, axis=0)
 
     df = DataFrame(mean_metric)
     display(df)
+
+    if file_name:
+        df.to_csv(f'{file_name}.csv', index=False)
+        print(f'DataFrame saved to {file_name}.cs')
