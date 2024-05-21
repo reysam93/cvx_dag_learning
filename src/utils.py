@@ -171,4 +171,4 @@ def display_results(exps_leg, metrics, agg='mean', file_name=None):
 
     if file_name:
         df.to_csv(f'{file_name}.csv', index=False)
-        print(f'DataFrame saved to {file_name}.cs')
+        print(f'DataFrame saved to {file_name}.csv')
