@@ -19,16 +19,20 @@ class Nonneg_dagma():
         return la.inv(self.s*self.Id - W).T
 
     def fit(self, X, alpha, lamb, stepsize, s=1, max_iters=1000, checkpoint=250, tol=1e-6,
-            adam_opt=False, beta1=.99, beta2=.999, track_seq=False, verb=False):
+            opt_type=None, beta1=.99, beta2=.999, track_seq=False, verb=False):
         
-        self.init_variables_(X, track_seq, s, adam_opt, beta1, beta2, verb)
-        self.W_est, _ = self.proj_grad_desc_(lamb, alpha, stepsize, max_iters,
-                                                    checkpoint, tol, track_seq)
-        
+        self.init_variables_(X, track_seq, s, opt_type, beta1, beta2, verb)
+
+        if self.opt_type == 'fista':
+            self.W_est, _ = self.acc_proj_grad_desc_(self.W_est, lamb, alpha, stepsize, max_iters,
+                                                     checkpoint, tol, track_seq)
+        else:
+            self.W_est, _ = self.proj_grad_desc_(self.W_est, lamb, alpha, stepsize, max_iters,
+                                                 checkpoint, tol, track_seq)
         return self.W_est
 
 
-    def init_variables_(self, X, track_seq, s, adam_opt, beta1, beta2, verb):
+    def init_variables_(self, X, track_seq, s, opt_type, beta1, beta2, verb):
         self.M, self.N = X.shape
         self.Cx = X.T @ X / self.M
         self.W_est = np.zeros_like(self.Cx)
@@ -38,9 +42,10 @@ class Nonneg_dagma():
         self.s = s
 
         # For Adam
-        self.opt_m, self.opt_v = 0, 0
-        self.adam = adam_opt
-        self.beta1, self.beta2 = beta1, beta2
+        self.opt_type = opt_type
+        if opt_type == 'adam':
+            self.opt_m, self.opt_v = 0, 0
+            self.beta1, self.beta2 = beta1, beta2
         
         self.acyclicity = []
         self.diff = []
@@ -62,7 +67,7 @@ class Nonneg_dagma():
 
     def proj_grad_step_(self, W, alpha, lamb, stepsize, iter):
         G_obj_func = self.compute_gradient_(W, lamb, alpha)
-        if self.adam:
+        if self.opt_type == 'adam':
             G_obj_func = self.compute_adam_grad_(G_obj_func, iter+1)
         W_est = np.maximum(W - stepsize*G_obj_func, 0)
 
@@ -82,49 +87,68 @@ class Nonneg_dagma():
         
         return W_est, stepsize
 
-    def convergence_(self, iteration, checkpoint, tol, W_prev):
-        """
-        Check if the algorithm has converged
-        """
-        if iteration % checkpoint == 0:
-            self.diff.append(la.norm(self.W_est - W_prev) / la.norm(W_prev))
-            return self.diff <= tol
+    def tack_variables_(self, W, W_prev, track_seq):
+        norm_W_prev = la.norm(W_prev)
+        norm_W_prev = norm_W_prev if norm_W_prev != 0 else 1
+        self.diff.append(la.norm(W - W_prev) / norm_W_prev)
+        if track_seq:
+            self.seq_W.append(W)
+            self.acyclicity.append(self.dagness(W))
 
-        return False
 
-    def proj_grad_desc_(self, lamb, alpha, stepsize, max_iters, checkpoint, tol,
+    def proj_grad_desc_(self, W, lamb, alpha, stepsize, max_iters, checkpoint, tol,
                         track_seq):
-        W_prev = self.W_est.copy()
+        W_prev = W.copy()
         for i in range(max_iters):
-            self.W_est, stepsize = self.proj_grad_step_(W_prev, alpha, lamb, stepsize, i)
+            W, stepsize = self.proj_grad_step_(W_prev, alpha, lamb, stepsize, i)
 
             # Update tracking variables
-            norm_W_prev = la.norm(W_prev)
-            norm_W_prev = norm_W_prev if norm_W_prev != 0 else 1
-            self.diff.append(la.norm(self.W_est - W_prev) / norm_W_prev)
-            if track_seq:
-                self.seq_W.append(self.W_est)
-                self.acyclicity.append(self.dagness(self.W_est))
+            self.tack_variables_(W, W_prev, track_seq)
 
             # Check convergence
             if i % checkpoint == 0 and self.diff[-1] <= tol:
                 break
     
-            W_prev = self.W_est.copy()
+            W_prev = W.copy()
         
-        return self.W_est, stepsize
+        return W, stepsize
 
+    def acc_proj_grad_desc_(self, W, lamb, alpha, stepsize, max_iters, checkpoint, tol,
+                            track_seq):
+        W_prev = W.copy()
+        W_fista = np.copy(W) 
+        t_k = 1
+        for i in range(max_iters):
+            W, stepsize = self.proj_grad_step_(W_fista, alpha, lamb, stepsize, i)
+            t_next = (1 + np.sqrt(1 + 4*t_k**2))/2
+            W_fista = W + (t_k - 1)/t_next*(W - W_prev)
+
+            # Update tracking variables
+            self.tack_variables_(W, W_prev, track_seq)
+
+            # Check convergence
+            if i % checkpoint == 0 and self.diff[-1] <= tol:
+                break
+
+            W_prev = W
+            t_k = t_next
+        
+        return W, stepsize
 
 class Nonneg_notears(Nonneg_dagma):
     """
     Projected Gradient Descet algorithm for learning DAGs with DAGMA acyclicity constraint
     """
     def fit(self, X, alpha, lamb, stepsize, max_iters=1000, checkpoint=250, tol=1e-6,
-            track_seq=False, verb=False):
+            opt_type=None, beta1=.99, beta2=.999, track_seq=False, verb=False):
         
-        self.init_variables_(X, track_seq, None, verb)
-        self.W_est, _ = self.proj_grad_desc_(lamb, alpha, stepsize, max_iters,
-                                                    checkpoint, tol, track_seq)
+        self.init_variables_(X, track_seq, None, opt_type, beta1, beta2, verb)
+        if self.opt_type == 'fista':
+            self.W_est, _ = self.acc_proj_grad_desc_(self.W_est, lamb, alpha, stepsize, max_iters,
+                                                     checkpoint, tol, track_seq)
+        else:
+            self.W_est, _ = self.proj_grad_desc_(self.W_est, lamb, alpha, stepsize, max_iters,
+                                                 checkpoint, tol, track_seq)
         
         return self.W_est
 
@@ -149,15 +173,19 @@ class MetMulDagma(Nonneg_dagma):
     """
     def fit(self, X, lamb, stepsize, s=1, iters_in=1000, iters_out=10, checkpoint=250, tol=1e-6,
             beta=5, gamma=.25, rho_0=1, alpha_0=.1, track_seq=False, dec_step=None,
-            adam_opt=False, beta1=.99, beta2=.999, verb=False):
+            opt_type=None, beta1=.99, beta2=.999, verb=False):
 
-        self.init_variables_(X, rho_0, alpha_0, track_seq, s, adam_opt, beta1, beta2,  verb)        
+        self.init_variables_(X, rho_0, alpha_0, track_seq, s, opt_type, beta1, beta2,  verb)        
         dagness_prev = self.dagness(self.W_est)
 
         for i in range(iters_out):
             # Estimate W
-            self.W_est, stepsize = self.proj_grad_desc_(lamb, self.alpha, stepsize, iters_in,
-                                                        checkpoint, tol, track_seq)
+            if self.opt_type == 'fista':
+                self.W_est, stepsize = self.acc_proj_grad_desc_(self.W_est, lamb, self.alpha, stepsize, iters_in,
+                                                                checkpoint, tol, track_seq)
+            else:
+                self.W_est, stepsize = self.proj_grad_desc_(self.W_est, lamb, self.alpha, stepsize, iters_in,
+                                                            checkpoint, tol, track_seq)
 
             # Update augmented Lagrangian parameters
             dagness = self.dagness(self.W_est)

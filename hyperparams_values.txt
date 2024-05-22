@@ -1,3 +1,19 @@
+data_params = {
+    'n_nodes': N,
+    'n_samples': 500,
+    'graph_type': 'er',
+    'edges': 4*N,
+    'edge_type': 'positive',
+    'w_range': (.5, 1),
+    'var': 1, # 1/np.sqrt(N),
+}
+
+# Mean
+{'stepsize': 0.0025, 'alpha_0': 0.01, 'rho_0': 0.05, 'beta': 2, 's': 1, 'lamb': 0.0001, 'iters_in': 30000, 'iters_out': 20, 'tol': 1e-06}
+shd: 44.37 | err: 0.1003 |acyc: 0.000205 | time: 255.46
+########################################################################
+
+
 # DAG parameters
 N = 100
 g_type = 'er'
