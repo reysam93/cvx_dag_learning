@@ -2,13 +2,15 @@ import numpy as np
 from numpy import linalg as la
 from scipy.linalg import expm
 
-import matplotlib.pyplot as plt
-
 
 class Nonneg_dagma():
     """
     Projected Gradient Descet algorithm for learning DAGs with DAGMA acyclicity constraint
     """
+    # def __init__(self):
+
+    #     pass
+
     def dagness(self, W):
         """
         Evaluates the acyclicity constraint

@@ -34,6 +34,10 @@ class DAGMA_linear:
         h = - la.slogdet(M)[1] + self.d * np.log(s)
         G_h = 2 * W * sla.inv(M).T 
         return h, G_h
+    
+    def dagness(self, W, s=1):
+        value, _ = self._h(W, s)
+        return value
 
     def _func(self, W, mu, s=1.0):
         """Evaluate value of the penalized objective function."""
@@ -89,10 +93,10 @@ class DAGMA_linear:
                 self.vprint(f'\tscore(W_est): {score:.4e}')
                 self.vprint(f'\tobj(W_est): {obj_new:.4e}')
                 if np.abs((obj_prev - obj_new) / obj_prev) <= tol:
-                    pbar.update(max_iter-iter+1)
+                    # pbar.update(max_iter-iter+1)
                     break
                 obj_prev = obj_new
-            pbar.update(1)
+            # pbar.update(1)
         return W, True
     
     def fit(self, X, lambda1, w_threshold=0.3, T=5,

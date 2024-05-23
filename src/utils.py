@@ -157,18 +157,23 @@ def count_accuracy(W_bin_true, W_bin_est):
     return shd, tpr, fdr
 
 def display_results(exps_leg, metrics, agg='mean', file_name=None):
-    mean_metric = {'leg': exps_leg}
+    
+    metric_str = {'leg': exps_leg}
     for key, value in metrics.items():
-        if agg == 'median':
-            mean_metric[key] = np.median(value, axis=0)
-        elif agg == 'std':
-            mean_metric[key] = np.std(value, axis=0)
-        else:
-            mean_metric[key] = np.mean(value, axis=0)
-
-    df = DataFrame(mean_metric)
+        metric_str[key] = []
+        
+        agg_metric = np.median(value, axis=0) if agg == 'median' else np.mean(value, axis=0)
+        std_metric = np.std(value, axis=0)
+        for i, _ in enumerate(exps_leg):
+            text = f'{agg_metric[i]:.4f}  \u00B1 {std_metric[i]:.4f}'
+            metric_str[key].append(text)
+        
+    df = DataFrame(metric_str)
     display(df)
 
     if file_name:
         df.to_csv(f'{file_name}.csv', index=False)
         print(f'DataFrame saved to {file_name}.csv')
+
+def standarize(X):
+    return (X - X.mean(axis=0))/X.std(axis=0)
