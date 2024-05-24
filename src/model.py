@@ -2,39 +2,61 @@ import numpy as np
 from numpy import linalg as la
 from scipy.linalg import expm
 
+import warnings
 
 class Nonneg_dagma():
     """
     Projected Gradient Descet algorithm for learning DAGs with DAGMA acyclicity constraint
     """
-    # def __init__(self):
+    def __init__(self, primal_opt='pgd', acyclicity='logdet'):
+        self.acyc_const = acyclicity
+        if acyclicity == 'logdet':
+            self.dagness = self.logdet_acyc_
+            self.gradient_acyclic = self.logdet_acyclic_grad_
+        elif acyclicity == 'matexp':
+            self.dagness = self.matexp_acyc_
+            self.gradient_acyclic = self.matexp_acyclic_grad_
+        else:
+            raise ValueError('Unknown acyclicity constraint')
 
-    #     pass
+        self.opt_type = primal_opt
+        if primal_opt in ['pgd', 'adam']:
+            self.minimize_primal = self.proj_grad_desc_
+        elif primal_opt == 'fista':
+            self.minimize_primal = self.acc_proj_grad_desc_
+        else:
+            raise ValueError('Unknown solver type for primal problem')
 
-    def dagness(self, W):
+    def logdet_acyc_(self, W):
         """
         Evaluates the acyclicity constraint
         """
         return self.N * np.log(self.s) - la.slogdet(self.s*self.Id - W)[1]
     
-    def gradient_acyclic(self, W):
+    def logdet_acyclic_grad_(self, W):
         return la.inv(self.s*self.Id - W).T
+    
+    def matexp_acyc_(self, W):
+        if np.trace(W) > 1e3:
+            print('Risk of overflowing!', np.trace(W), np.trace(expm(W)))
+        return np.trace(expm(W)) - self.N
+
+    def matexp_acyclic_grad_(self, W):
+        return expm(W).T
+
+
 
     def fit(self, X, alpha, lamb, stepsize, s=1, max_iters=1000, checkpoint=250, tol=1e-6,
-            opt_type=None, beta1=.99, beta2=.999, track_seq=False, verb=False):
+            beta1=.99, beta2=.999, track_seq=False, verb=False):
         
-        self.init_variables_(X, track_seq, s, opt_type, beta1, beta2, verb)
-
-        if self.opt_type == 'fista':
-            self.W_est, _ = self.acc_proj_grad_desc_(self.W_est, lamb, alpha, stepsize, max_iters,
-                                                     checkpoint, tol, track_seq)
-        else:
-            self.W_est, _ = self.proj_grad_desc_(self.W_est, lamb, alpha, stepsize, max_iters,
-                                                 checkpoint, tol, track_seq)
+        self.init_variables_(X, track_seq, s, beta1, beta2, verb)
+        self.W_est, _ = self.minimize_primal(self.W_est, lamb, alpha, stepsize, max_iters,
+                                             checkpoint, tol, track_seq)
+        
         return self.W_est
 
 
-    def init_variables_(self, X, track_seq, s, opt_type, beta1, beta2, verb):
+    def init_variables_(self, X, track_seq, s, beta1, beta2, verb):
         self.M, self.N = X.shape
         self.Cx = X.T @ X / self.M
         self.W_est = np.zeros_like(self.Cx)
@@ -44,10 +66,8 @@ class Nonneg_dagma():
         self.s = s
 
         # For Adam
-        self.opt_type = opt_type
-        if opt_type == 'adam':
-            self.opt_m, self.opt_v = 0, 0
-            self.beta1, self.beta2 = beta1, beta2
+        self.opt_m, self.opt_v = 0, 0
+        self.beta1, self.beta2 = beta1, beta2
         
         self.acyclicity = []
         self.diff = []
@@ -74,18 +94,19 @@ class Nonneg_dagma():
         W_est = np.maximum(W - stepsize*G_obj_func, 0)
 
         # Ensure non-negative acyclicity
-        acyc = self.dagness(W_est)
-        if acyc < -1e-12:
-            eigenvalues, _ = np.linalg.eig(W_est)
-            max_eigenvalue = np.max(np.abs(eigenvalues))
-            W_est = W_est/(max_eigenvalue + 1e-3)
-            acyc = self.dagness(W_est)
+        if self.acyc_const == 'logdet':
+            acyc = self.dagness(W_est)        
+            if acyc < -1e-12:
+                eigenvalues, _ = np.linalg.eig(W_est)
+                max_eigenvalue = np.max(np.abs(eigenvalues))
+                W_est = W_est/(max_eigenvalue + 1e-3)
+                acyc = self.dagness(W_est)
 
-            stepsize /= 2
-            if self.verb:
-                print('Negative acyclicity. Projecting and reducing stepsize to: ', stepsize)
+                stepsize /= 2
+                if self.verb:
+                    print('Negative acyclicity. Projecting and reducing stepsize to: ', stepsize)
 
-        assert acyc > -1e-12, f'Acyclicity is negative: {acyc}'
+            assert acyc > -1e-12, f'Acyclicity is negative: {acyc}'
         
         return W_est, stepsize
 
@@ -137,37 +158,7 @@ class Nonneg_dagma():
         
         return W, stepsize
 
-class Nonneg_notears(Nonneg_dagma):
-    """
-    Projected Gradient Descet algorithm for learning DAGs with DAGMA acyclicity constraint
-    """
-    def fit(self, X, alpha, lamb, stepsize, max_iters=1000, checkpoint=250, tol=1e-6,
-            opt_type=None, beta1=.99, beta2=.999, track_seq=False, verb=False):
-        
-        self.init_variables_(X, track_seq, None, opt_type, beta1, beta2, verb)
-        if self.opt_type == 'fista':
-            self.W_est, _ = self.acc_proj_grad_desc_(self.W_est, lamb, alpha, stepsize, max_iters,
-                                                     checkpoint, tol, track_seq)
-        else:
-            self.W_est, _ = self.proj_grad_desc_(self.W_est, lamb, alpha, stepsize, max_iters,
-                                                 checkpoint, tol, track_seq)
-        
-        return self.W_est
 
-    def dagness(self, W):
-        """
-        Evaluates the acyclicity constraint
-        """
-        return np.trace(expm(W)) - self.N
-    
-    def gradient_acyclic(self, W):
-        return expm(W).T
-
-    def proj_grad_step_(self, W, alpha, lamb, stepsize):
-        G_obj_func = self.compute_gradient_(W, lamb, alpha)
-        W_est = np.maximum(W - stepsize*G_obj_func, 0)
-        
-        return W_est, stepsize
 
 class MetMulDagma(Nonneg_dagma):
     """
@@ -175,19 +166,15 @@ class MetMulDagma(Nonneg_dagma):
     """
     def fit(self, X, lamb, stepsize, s=1, iters_in=1000, iters_out=10, checkpoint=250, tol=1e-6,
             beta=5, gamma=.25, rho_0=1, alpha_0=.1, track_seq=False, dec_step=None,
-            opt_type=None, beta1=.99, beta2=.999, verb=False):
+            beta1=.99, beta2=.999, verb=False):
 
-        self.init_variables_(X, rho_0, alpha_0, track_seq, s, opt_type, beta1, beta2,  verb)        
+        self.init_variables_(X, rho_0, alpha_0, track_seq, s, beta1, beta2,  verb)        
         dagness_prev = self.dagness(self.W_est)
 
         for i in range(iters_out):
             # Estimate W
-            if self.opt_type == 'fista':
-                self.W_est, stepsize = self.acc_proj_grad_desc_(self.W_est, lamb, self.alpha, stepsize, iters_in,
-                                                                checkpoint, tol, track_seq)
-            else:
-                self.W_est, stepsize = self.proj_grad_desc_(self.W_est, lamb, self.alpha, stepsize, iters_in,
-                                                            checkpoint, tol, track_seq)
+            self.W_est, _ = self.minimize_primal(self.W_est, lamb, self.alpha, stepsize, iters_in,
+                                                 checkpoint, tol, track_seq)
 
             # Update augmented Lagrangian parameters
             dagness = self.dagness(self.W_est)
@@ -213,8 +200,8 @@ class MetMulDagma(Nonneg_dagma):
         G_acyc = self.gradient_acyclic(W)
         return G_loss + (alpha + self.rho*acyc_val)*G_acyc
     
-    def init_variables_(self, X, rho_init, alpha_init, track_seq, s, adam_opt, beta1, beta2,  verb):
-        super().init_variables_(X, track_seq, s, adam_opt, beta1, beta2,  verb)
+    def init_variables_(self, X, rho_init, alpha_init, track_seq, s, beta1, beta2,  verb):
+        super().init_variables_(X, track_seq, s, beta1, beta2,  verb)
         self.rho = rho_init
         self.alpha = alpha_init
 

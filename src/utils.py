@@ -101,7 +101,7 @@ def to_bin(W, thr=0.1):
 
 def compute_norm_sq_err(W_true, W_est, norm_W_true=None):
     norm_W_true = norm_W_true if norm_W_true is not None else la.norm(W_true)
-    norm_W_est = la.norm(W_est)
+    norm_W_est = la.norm(W_est) if la.norm(W_est) > 0 else 1
     return (la.norm(W_true/norm_W_true - W_est/norm_W_est))**2
 
 def count_accuracy(W_bin_true, W_bin_est):
