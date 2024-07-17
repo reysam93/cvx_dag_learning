@@ -37,12 +37,16 @@ class Nonneg_dagma():
         return la.inv(self.s*self.Id - W).T
     
     def matexp_acyc_(self, W):
-        if np.trace(W) > 1e3:
-            print('Risk of overflowing!', np.trace(W), np.trace(expm(W)))
+        # if np.trace(W) > 1e3:
+        #     print('Risk of overflowing!', np.trace(W), np.trace(expm(W)))
+        # Clip W to prevent overflowing
+        entry_limit = np.maximum(10, 5e2/W.shape[0])
+        W = np.clip(W, -entry_limit, entry_limit)
         return np.trace(expm(W)) - self.N
 
     def matexp_acyclic_grad_(self, W):
-        return expm(W).T
+        # Clippling gradient to prevent overflow
+        return np.clip(expm(W).T, -1e7, 1e7)
 
 
 

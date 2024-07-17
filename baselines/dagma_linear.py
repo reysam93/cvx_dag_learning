@@ -103,6 +103,7 @@ class DAGMA_linear:
             mu_init=1.0, mu_factor=0.1, s=[1.0, .9, .8, .7, .6], 
             warm_iter=3e4, max_iter=6e4, lr=0.0003, 
             checkpoint=1000, beta_1=0.99, beta_2=0.999,
+            disable_tqdm=True
         ):
         ## INITALIZING VARIABLES 
         self.X, self.lambda1, self.checkpoint = X, lambda1, checkpoint
@@ -125,7 +126,7 @@ class DAGMA_linear:
             ValueError("s should be a list, int, or float.")    
         
         ## START DAGMA
-        with tqdm(total=(T-1)*warm_iter+max_iter, disable=True) as pbar:
+        with tqdm(total=(T-1)*warm_iter+max_iter, disable=disable_tqdm) as pbar:
             for i in range(int(T)):
                 self.vprint(f'\nIteration -- {i+1}:')
                 lr_adam, success = lr, False

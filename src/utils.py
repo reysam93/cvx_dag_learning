@@ -5,6 +5,8 @@ import time
 from pandas import DataFrame
 from IPython.display import display
 
+import matplotlib.pyplot as plt
+
 def is_dag(W):
     return nx.is_directed_acyclic_graph(nx.DiGraph(W))
 
@@ -27,7 +29,8 @@ def create_dag(n_nodes, graph_type, edges, permute=True, edge_type='positive', w
         sf_m = int(round(edges / n_nodes))
         G = nx.barabasi_albert_graph(n_nodes, sf_m)
         adj = nx.to_numpy_array(G)
-        W = np.tril(adj, k=-1)
+        # W = np.tril(adj, k=-1)
+        W = np.triu(adj, k=1)
 
     else:
         raise ValueError('Unknown graph type')
@@ -177,3 +180,52 @@ def display_results(exps_leg, metrics, agg='mean', file_name=None):
 
 def standarize(X):
     return (X - X.mean(axis=0))/X.std(axis=0)
+
+def plot_data(axes, data, exps, x_vals, xlabel, ylabel, skip_idx=[], agg='mean', deviation=False,
+              alpha=.25, plot_func='semilogx'):
+    if agg == 'median':
+        agg_data = np.median(data, axis=0)
+    else:
+        agg_data = np.mean(data, axis=0)
+
+    std = np.std(data, axis=0)
+
+    for i, exp in enumerate(exps):
+        if i in skip_idx:
+            continue
+        getattr(axes, plot_func)(x_vals, agg_data[:,i], exp['fmt'], label=exp['leg'])
+
+        if deviation:
+            up_ci = agg_data[:,i] + std[:,i]
+            low_ci = np.maximum(agg_data[:,i] - std[:,i], 0)
+            axes.fill_between(x_vals, low_ci, up_ci, alpha=alpha)
+
+
+    axes.set_xlabel(xlabel)
+    axes.set_ylabel(ylabel)
+    axes.grid(True)
+    axes.legend()
+
+def plot_all_metrics(shd, tpr, fdr, fscore, err, acyc, runtime, dag_count, x_vals, exps, 
+                     agg='mean', skip_idx=[], dev=False, alpha=.25, xlabel='Number of samples'):
+    fig, axes = plt.subplots(1, 4, figsize=(16, 4))
+    plot_data(axes[0], shd, exps, x_vals, xlabel, 'SDH', skip_idx,
+              agg=agg, deviation=dev, alpha=alpha)
+    plot_data(axes[1], tpr, exps, x_vals, xlabel, 'TPR', skip_idx,
+              agg=agg, deviation=dev, alpha=alpha)
+    plot_data(axes[2], fdr, exps, x_vals, xlabel, 'FDR', skip_idx,
+              agg=agg, deviation=dev, alpha=alpha)
+    plot_data(axes[3], fscore, exps, x_vals, xlabel, 'F1', skip_idx,
+              agg=agg, deviation=dev, alpha=alpha)
+    plt.tight_layout()
+
+    fig, axes = plt.subplots(1, 4, figsize=(16, 4))
+    plot_data(axes[0], err, exps, x_vals, xlabel, 'Fro Error', skip_idx, agg=agg,
+              deviation=dev, alpha=alpha, plot_func='loglog')
+    plot_data(axes[1], acyc, exps, x_vals, xlabel, 'Acyclity', skip_idx, agg=agg,
+              deviation=dev)
+    plot_data(axes[2], runtime, exps, x_vals, xlabel, 'Running time (seconds)',
+              skip_idx, agg=agg, deviation=dev, alpha=alpha, plot_func='loglog')
+    plot_data(axes[3], dag_count, exps, x_vals, xlabel, 'Graph is DAG', skip_idx,
+              agg=agg)
+    plt.tight_layout()

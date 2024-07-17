@@ -91,6 +91,7 @@ class colide_ev:
             mu_init=1.0, mu_factor=0.1, s=[1.0, .9, .8, .7, .6], 
             warm_iter=3e4, max_iter=6e4, lr=0.0003, 
             checkpoint=1000, beta_1=0.99, beta_2=0.999,
+            disable_tqdm=True
         ):
         self.X, self.lambda1, self.checkpoint = X, lambda1, checkpoint
         self.n, self.d = X.shape
@@ -109,7 +110,7 @@ class colide_ev:
         else:
             ValueError("s should be a list, int, or float.")    
         
-        with tqdm(total=(T-1)*warm_iter+max_iter) as pbar:
+        with tqdm(total=(T-1)*warm_iter+max_iter, disable=disable_tqdm) as pbar:
             for i in range(int(T)):
                 lr_adam, success = lr, False
                 inner_iters = int(max_iter) if i == T - 1 else int(warm_iter)
@@ -209,6 +210,7 @@ class colide_nv:
             mu_init=1.0, mu_factor=0.1, s=[1.0, .9, .8, .7, .6], 
             warm_iter=3e4, max_iter=6e4, lr=0.0003, 
             checkpoint=1000, beta_1=0.99, beta_2=0.999, w_init=None,
+            disable_tqdm=True
         ):
         self.X, self.lambda1, self.checkpoint = X, lambda1, checkpoint
         self.n, self.d = X.shape
@@ -232,7 +234,7 @@ class colide_nv:
         else:
             ValueError("s should be a list, int, or float.")    
         
-        with tqdm(total=(T-1)*warm_iter+max_iter) as pbar:
+        with tqdm(total=(T-1)*warm_iter+max_iter, disable=disable_tqdm) as pbar:
             for i in range(int(T)):
                 lr_adam, success = lr, False
                 inner_iters = int(max_iter) if i == T - 1 else int(warm_iter)
