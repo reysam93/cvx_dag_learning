@@ -51,20 +51,29 @@ class Nonneg_dagma():
 
 
     def fit(self, X, alpha, lamb, stepsize, s=1, max_iters=1000, checkpoint=250, tol=1e-6,
-            beta1=.99, beta2=.999, track_seq=False, verb=False):
+            beta1=.99, beta2=.999, Sigma=1, track_seq=False, verb=False):
         
-        self.init_variables_(X, track_seq, s, beta1, beta2, verb)
+        self.init_variables_(X, track_seq, s, Sigma, beta1, beta2, verb)
         self.W_est, _ = self.minimize_primal(self.W_est, lamb, alpha, stepsize, max_iters,
                                              checkpoint, tol, track_seq)
         
         return self.W_est
 
-
-    def init_variables_(self, X, track_seq, s, beta1, beta2, verb):
+    def init_variables_(self, X, track_seq, s, Sigma, beta1, beta2, verb):
         self.M, self.N = X.shape
         self.Cx = X.T @ X / self.M
         self.W_est = np.zeros_like(self.Cx)
         self.verb = verb
+
+        if np.isscalar(Sigma):
+            self.Sigma_inv = 1 / Sigma * np.ones((self.N))
+        elif Sigma.ndim == 1:
+            self.Sigma_inv = 1 / Sigma
+        elif Sigma.ndim == 2:
+            assert np.all(Sigma == np.diag(np.diag(Sigma))), 'Sigma must be a diagonal matrix'
+            self.Sigma_inv = 1 / np.diag(Sigma)
+        else:
+            raise ValueError("Sigma must be a scalar, vector or diagonal Matrix")
 
         self.Id = np.eye(self.N)
         self.s = s
@@ -77,8 +86,8 @@ class Nonneg_dagma():
         self.diff = []
         self.seq_W = [] if track_seq else None
 
-    def compute_gradient_(self, W, lamb, alpha):
-        G_loss = self.Cx @(W - self.Id) / 2 + lamb
+    def compute_gradient_(self, W, lamb, alpha):        
+        G_loss = self.Cx @(W - self.Id) * self.Sigma_inv / 2 + lamb
         G_acyc = self.gradient_acyclic(W)
         return G_loss + alpha*G_acyc
     
@@ -170,9 +179,9 @@ class MetMulDagma(Nonneg_dagma):
     """
     def fit(self, X, lamb, stepsize, s=1, iters_in=1000, iters_out=10, checkpoint=250, tol=1e-6,
             beta=5, gamma=.25, rho_0=1, alpha_0=.1, track_seq=False, dec_step=None,
-            beta1=.99, beta2=.999, verb=False):
+            beta1=.99, beta2=.999, Sigma=1, verb=False):
 
-        self.init_variables_(X, rho_0, alpha_0, track_seq, s, beta1, beta2,  verb)        
+        self.init_variables_(X, rho_0, alpha_0, track_seq, s, Sigma, beta1, beta2,  verb)        
         dagness_prev = self.dagness(self.W_est)
 
         for i in range(iters_out):
@@ -199,45 +208,45 @@ class MetMulDagma(Nonneg_dagma):
         return self.W_est  
 
     def compute_gradient_(self, W, lamb, alpha):
+        G_loss = self.Cx @(W - self.Id) * self.Sigma_inv / 2 + lamb
         acyc_val = self.dagness(W)
-        G_loss = self.Cx @(W - self.Id) / 2 + lamb
         G_acyc = self.gradient_acyclic(W)
         return G_loss + (alpha + self.rho*acyc_val)*G_acyc
-    
-    def init_variables_(self, X, rho_init, alpha_init, track_seq, s, beta1, beta2,  verb):
-        super().init_variables_(X, track_seq, s, beta1, beta2,  verb)
+
+    def init_variables_(self, X, rho_init, alpha_init, track_seq, s, Sigma, beta1, beta2,  verb):
+        super().init_variables_(X, track_seq, s, Sigma, beta1, beta2,  verb)
         self.rho = rho_init
         self.alpha = alpha_init
 
     
-class BarrierDagma(Nonneg_dagma):
-    def fit(self, X, lamb, stepsize, s=1, iters_in=1000, iters_out=10, checkpoint=250, tol=1e-6,
-            beta=.5, delta=1e-5, alpha=1, track_seq=False, dec_step=False, verb=False):
+# class BarrierDagma(Nonneg_dagma):
+#     def fit(self, X, lamb, stepsize, s=1, iters_in=1000, iters_out=10, checkpoint=250, tol=1e-6,
+#             beta=.5, delta=1e-5, alpha=1, Sigma=1, track_seq=False, dec_step=False, verb=False):
 
-        self.init_variables_(X, track_seq, verb)        
-        self.delta = delta 
+#         self.init_variables_(X, track_seq, verb)        
+#         self.delta = delta 
 
-        for i in range(iters_out):
-            # Estimate W
-            self.W_est, stepsize = self.proj_grad_desc_(lamb, alpha, s, stepsize, iters_in,
-                                                        checkpoint, tol, track_seq)
+#         for i in range(iters_out):
+#             # Estimate W
+#             self.W_est, stepsize = self.proj_grad_desc_(lamb, alpha, s, stepsize, iters_in,
+#                                                         checkpoint, tol, track_seq)
 
-            # Logarithmic barrier weight
-            alpha *= beta
+#             # Logarithmic barrier weight
+#             alpha *= beta
 
-            if dec_step:
-                stepsize *= .9
+#             if dec_step:
+#                 stepsize *= .9
 
-            if verb:
-                dagness = self.dagness(self.W_est, s)
-                print(f'- {i+1}/{iters_out}. Diff: {self.diff[-1]:.4f} | Acycl: {dagness:.4f}' +
-                      f' | Alpha: {alpha:.3f} - Step: {stepsize:.4f}')
+#             if verb:
+#                 dagness = self.dagness(self.W_est, s)
+#                 print(f'- {i+1}/{iters_out}. Diff: {self.diff[-1]:.4f} | Acycl: {dagness:.4f}' +
+#                       f' | Alpha: {alpha:.3f} - Step: {stepsize:.4f}')
                                     
-        return self.W_est
+#         return self.W_est
     
-    def compute_gradient_(self, W, lamb, s, alpha):
-        dagness = np.maximum(self.dagness(W, s), self.delta) 
-        G_loss = self.Cx @(W - self.Id) + lamb
-        G_acyc = la.inv(s*self.Id - W).T
-        return G_loss - alpha/dagness*G_acyc
+#     def compute_gradient_(self, W, lamb, s, alpha):
+#         dagness = np.maximum(self.dagness(W, s), self.delta) 
+#         G_loss = self.Cx @(W - self.Id) + lamb
+#         G_acyc = la.inv(s*self.Id - W).T
+#         return G_loss - alpha/dagness*G_acyc
     

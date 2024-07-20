@@ -24,13 +24,13 @@ def create_dag(n_nodes, graph_type, edges, permute=True, edge_type='positive', w
             P = P[:, np.random.permutation(n_nodes)]
             W = P @ W @ P.T
 
-    elif graph_type == 'sf':
+    elif graph_type == 'sf' or graph_type == 'sf_t':
         # NOTE: Why are this graphs lower triangular?
         sf_m = int(round(edges / n_nodes))
         G = nx.barabasi_albert_graph(n_nodes, sf_m)
         adj = nx.to_numpy_array(G)
         # W = np.tril(adj, k=-1)
-        W = np.triu(adj, k=1)
+        W = np.triu(adj, k=1) if graph_type == 'sf' else np.tril(adj, k=-1)
 
     else:
         raise ValueError('Unknown graph type')
