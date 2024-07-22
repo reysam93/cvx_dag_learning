@@ -181,7 +181,7 @@ def display_results(exps_leg, metrics, agg='mean', file_name=None):
 def standarize(X):
     return (X - X.mean(axis=0))/X.std(axis=0)
 
-def plot_data(axes, data, exps, x_vals, xlabel, ylabel, skip_idx=[], agg='mean', deviation=False,
+def plot_data(axes, data, exps, x_vals, xlabel, ylabel, skip_idx=[], agg='mean', deviation=None,
               alpha=.25, plot_func='semilogx'):
     if agg == 'median':
         agg_data = np.median(data, axis=0)
@@ -189,17 +189,22 @@ def plot_data(axes, data, exps, x_vals, xlabel, ylabel, skip_idx=[], agg='mean',
         agg_data = np.mean(data, axis=0)
 
     std = np.std(data, axis=0)
+    prctile25 = np.percentile(data, 25, axis=0)
+    prctile75 = np.percentile(data, 75, axis=0)
 
     for i, exp in enumerate(exps):
         if i in skip_idx:
             continue
         getattr(axes, plot_func)(x_vals, agg_data[:,i], exp['fmt'], label=exp['leg'])
 
-        if deviation:
+        if deviation == 'prctile':
+            up_ci = prctile25[:,i]
+            low_ci = prctile75[:,i]
+            axes.fill_between(x_vals, low_ci, up_ci, alpha=alpha)
+        elif deviation == 'std':
             up_ci = agg_data[:,i] + std[:,i]
             low_ci = np.maximum(agg_data[:,i] - std[:,i], 0)
             axes.fill_between(x_vals, low_ci, up_ci, alpha=alpha)
-
 
     axes.set_xlabel(xlabel)
     axes.set_ylabel(ylabel)
