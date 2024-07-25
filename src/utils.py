@@ -19,25 +19,29 @@ def create_dag(n_nodes, graph_type, edges, permute=True, edge_type='positive', w
         G = nx.erdos_renyi_graph(n_nodes, prob)
         W = np.triu(nx.to_numpy_array(G), k=1)
 
-        if permute:
-            P = np.eye(n_nodes)
-            P = P[:, np.random.permutation(n_nodes)]
-            W = P @ W @ P.T
-
     elif graph_type == 'sf' or graph_type == 'sf_t':
-        # NOTE: Why are this graphs lower triangular?
         sf_m = int(round(edges / n_nodes))
         G = nx.barabasi_albert_graph(n_nodes, sf_m)
         adj = nx.to_numpy_array(G)
         # W = np.tril(adj, k=-1)
         W = np.triu(adj, k=1) if graph_type == 'sf' else np.tril(adj, k=-1)
 
+    elif graph_type == 'sw' or graph_type == 'sw_t':
+        G = nx.watts_strogatz_graph(n_nodes, int(edges/n_nodes), rew_prob)
+        adj = nx.to_numpy_array(G)
+        W = np.triu(adj, k=1) if graph_type == 'sw' else np.tril(adj, k=-1)
+
     else:
         raise ValueError('Unknown graph type')
 
-    assert nx.is_weighted(G)==False
-    assert nx.is_empty(G)==False
+    assert nx.is_weighted(G) == False
+    assert nx.is_empty(G) == False
     
+    if permute:
+        P = np.eye(n_nodes)
+        P = P[:, np.random.permutation(n_nodes)]
+        W = P @ W @ P.T
+
     if edge_type == 'binary':
         W_weighted = W.copy()
     elif edge_type == 'positive':
