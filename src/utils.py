@@ -11,7 +11,7 @@ def is_dag(W):
     return nx.is_directed_acyclic_graph(nx.DiGraph(W))
 
 def create_dag(n_nodes, graph_type, edges, permute=True, edge_type='positive', w_range=(.5, 1.5),
-               rew_prob=.05):
+               rew_prob=.1):
     """
     edge_type cana be binary, positive, or negative 
     """    
@@ -28,7 +28,7 @@ def create_dag(n_nodes, graph_type, edges, permute=True, edge_type='positive', w
         W = np.triu(adj, k=1) if graph_type == 'sf' else np.tril(adj, k=-1)
 
     elif graph_type == 'sw' or graph_type == 'sw_t':
-        G = nx.watts_strogatz_graph(n_nodes, int(edges/n_nodes), rew_prob)
+        G = nx.watts_strogatz_graph(n_nodes, int(2*round(edges/n_nodes)), rew_prob)
         adj = nx.to_numpy_array(G)
         W = np.triu(adj, k=1) if graph_type == 'sw' else np.tril(adj, k=-1)
 

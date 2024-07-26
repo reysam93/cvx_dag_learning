@@ -119,7 +119,7 @@ class Nonneg_dagma():
                 if self.verb:
                     print('Negative acyclicity. Projecting and reducing stepsize to: ', stepsize)
 
-            assert acyc > -1e-12, f'Acyclicity is negative: {acyc}'
+                assert acyc > -1e-12, f'Acyclicity is negative: {acyc}'
         
         return W_est, stepsize
 
@@ -186,7 +186,7 @@ class MetMulDagma(Nonneg_dagma):
 
         for i in range(iters_out):
             # Estimate W
-            self.W_est, _ = self.minimize_primal(self.W_est, lamb, self.alpha, stepsize, iters_in,
+            self.W_est, stepsize = self.minimize_primal(self.W_est, lamb, self.alpha, stepsize, iters_in,
                                                  checkpoint, tol, track_seq)
 
             # Update augmented Lagrangian parameters
