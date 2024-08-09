@@ -112,13 +112,15 @@ class Nonneg_dagma():
             if acyc < -1e-12:
                 eigenvalues, _ = np.linalg.eig(W_est)
                 max_eigenvalue = np.max(np.abs(eigenvalues))
-                W_est = W_est/(max_eigenvalue + 1e-3)
+                W_est = W_est/(max_eigenvalue + 1e-2)
                 acyc = self.dagness(W_est)
 
                 stepsize /= 2
                 if self.verb:
                     print('Negative acyclicity. Projecting and reducing stepsize to: ', stepsize)
 
+                # if acyc <= -1e-12:
+                #     print(f'ERROR: Acyclicity is negative: {acyc}: max_W: {np.max(W_est)} - min_W: {np.min(W_est)}')
                 assert acyc > -1e-12, f'Acyclicity is negative: {acyc}'
         
         return W_est, stepsize
