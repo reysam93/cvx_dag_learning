@@ -2,8 +2,6 @@ import numpy as np
 from numpy import linalg as la
 from scipy.linalg import expm
 
-import warnings
-
 class Nonneg_dagma():
     """
     Projected Gradient Descet algorithm for learning DAGs with DAGMA acyclicity constraint
@@ -219,36 +217,3 @@ class MetMulDagma(Nonneg_dagma):
         super().init_variables_(X, track_seq, s, Sigma, beta1, beta2,  verb)
         self.rho = rho_init
         self.alpha = alpha_init
-
-    
-# class BarrierDagma(Nonneg_dagma):
-#     def fit(self, X, lamb, stepsize, s=1, iters_in=1000, iters_out=10, checkpoint=250, tol=1e-6,
-#             beta=.5, delta=1e-5, alpha=1, Sigma=1, track_seq=False, dec_step=False, verb=False):
-
-#         self.init_variables_(X, track_seq, verb)        
-#         self.delta = delta 
-
-#         for i in range(iters_out):
-#             # Estimate W
-#             self.W_est, stepsize = self.proj_grad_desc_(lamb, alpha, s, stepsize, iters_in,
-#                                                         checkpoint, tol, track_seq)
-
-#             # Logarithmic barrier weight
-#             alpha *= beta
-
-#             if dec_step:
-#                 stepsize *= .9
-
-#             if verb:
-#                 dagness = self.dagness(self.W_est, s)
-#                 print(f'- {i+1}/{iters_out}. Diff: {self.diff[-1]:.4f} | Acycl: {dagness:.4f}' +
-#                       f' | Alpha: {alpha:.3f} - Step: {stepsize:.4f}')
-                                    
-#         return self.W_est
-    
-#     def compute_gradient_(self, W, lamb, s, alpha):
-#         dagness = np.maximum(self.dagness(W, s), self.delta) 
-#         G_loss = self.Cx @(W - self.Id) + lamb
-#         G_acyc = la.inv(s*self.Id - W).T
-#         return G_loss - alpha/dagness*G_acyc
-    
