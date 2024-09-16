@@ -1,1 +1,6 @@
-# cvx_dag_learning
+# Convex learning of non-negative DAGs
+This repository includes the code associated with the paper "[Non-negative Weighted DAG Structure Learning]([https://arxiv.org/abs/2207.04747](https://arxiv.org/abs/2409.07880))", by Samuel Rey, Seyed S. Saboksayr, and Gonzalo Mateos in the `master` branch.
+
+
+## Abstract
+We address the problem of learning the topology of directed acyclic graphs (DAGs) from nodal observations, which adhere to a linear structural equation model. Recent advances framed the combinatorial DAG structure learning task as a continuous optimization problem, yet existing methods must contend with the complexities of non-convex optimization. To overcome this limitation, we assume that the latent DAG contains only non-negative edge weights. Leveraging this additional structure, we argue that cycles can be effectively characterized (and prevented) using a convex acyclicity function based on the log-determinant of the adjacency matrix. This convexity allows us to relax the task of learning the non-negative weighted DAG as an abstract convex optimization problem. We propose a DAG recovery algorithm based on the method of multipliers, that is guaranteed to return a global minimizer. Furthermore, we prove that in the infinite sample size regime, the convexity of our approach ensures the recovery of the true DAG structure. We empirically validate the performance of our algorithm in several reproducible synthetic-data test cases, showing that it outperforms state-of-the-art alternatives.
