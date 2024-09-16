@@ -35,8 +35,6 @@ class Nonneg_dagma():
         return la.inv(self.s*self.Id - W).T
     
     def matexp_acyc_(self, W):
-        # if np.trace(W) > 1e3:
-        #     print('Risk of overflowing!', np.trace(W), np.trace(expm(W)))
         # Clip W to prevent overflowing
         entry_limit = np.maximum(10, 5e2/W.shape[0])
         W = np.clip(W, -entry_limit, entry_limit)
@@ -117,8 +115,6 @@ class Nonneg_dagma():
                 if self.verb:
                     print('Negative acyclicity. Projecting and reducing stepsize to: ', stepsize)
 
-                # if acyc <= -1e-12:
-                #     print(f'ERROR: Acyclicity is negative: {acyc}: max_W: {np.max(W_est)} - min_W: {np.min(W_est)}')
                 assert acyc > -1e-12, f'Acyclicity is negative: {acyc}'
         
         return W_est, stepsize

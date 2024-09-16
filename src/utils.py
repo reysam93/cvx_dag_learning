@@ -24,7 +24,6 @@ def create_dag(n_nodes, graph_type, edges, permute=True, edge_type='positive', w
         sf_m = int(round(edges / n_nodes))
         G = nx.barabasi_albert_graph(n_nodes, sf_m)
         adj = nx.to_numpy_array(G)
-        # W = np.tril(adj, k=-1)
         W = np.triu(adj, k=1) if graph_type == 'sf' else np.tril(adj, k=-1)
 
     elif graph_type == 'sw' or graph_type == 'sw_t':
@@ -239,3 +238,16 @@ def plot_all_metrics(shd, tpr, fdr, fscore, err, acyc, runtime, dag_count, x_val
     plot_data(axes[3], dag_count, exps, x_vals, xlabel, 'Graph is DAG', skip_idx,
               agg=agg)
     plt.tight_layout()
+
+
+def data_to_csv(fname, models, xaxis, error, agg='mean', dev='std'):
+    data = np.concatenate((xaxis.reshape([xaxis.size, 1]), error), axis=1)
+    header = 'xaxis; '  
+
+    for i, model in enumerate(models):
+        header += model['leg']
+        if i < len(models)-1:
+            header += '; '
+
+    np.savetxt(fname, data, delimiter=';', header=header, comments='')
+    print('SAVED as:', fname)
