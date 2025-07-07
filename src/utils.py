@@ -71,21 +71,24 @@ def create_sem_signals(n_nodes, n_samples, G, noise_type='normal', var=1):
 
     W_weighted = nx.to_numpy_array(G)
 
+    if np.isscalar(var):
+        var = var*np.ones(n_nodes)
+    
     # Perform X = Z(I-A)^-1 sequentially to increase speed
     for j in ordered_vertices:
         parents = list(G.predecessors(j))
         eta = X[:, parents].dot(W_weighted[parents, j])
         if noise_type == 'normal':
-            scale = np.sqrt(var)
+            scale = np.sqrt(var[j])
             X[:, j] = eta + np.random.normal(scale=scale, size=(n_samples))
         elif noise_type == 'exp':
-            scale = np.sqrt(var)
+            scale = np.sqrt(var[j])
             X[:, j] = eta + np.random.exponential(scale=scale, size=(n_samples))
         elif noise_type == 'laplace':
-            scale = np.sqrt(var / 2.0)
+            scale = np.sqrt(var[j] / 2.0)
             X[:, j] = eta + np.random.laplace(loc=0.0, scale=scale, size=(n_samples))
         elif noise_type == 'gumbel':
-            scale = np.sqrt(6.0 * var) / np.pi
+            scale = np.sqrt(6.0 * var[j]) / np.pi
             X[:, j] = eta + np.random.gumbel(loc=0.0, scale=scale, size=(n_samples))
         else:
             raise ValueError('Noise type error!')
