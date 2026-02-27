@@ -62,6 +62,7 @@ class Nonneg_dagma():
         self.Gw_obj_func = None # for restart
         self.M, self.N = X.shape
         self.Cx = X.T @ X / self.M
+
         self.W_est = np.zeros_like(self.Cx)
         self.verb = verb
 
