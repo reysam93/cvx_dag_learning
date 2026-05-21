@@ -114,7 +114,281 @@ def compute_norm_sq_err(W_true, W_est, norm_W_true=None):
     norm_W_est = la.norm(W_est) if la.norm(W_est) > 0 else 1
     return (la.norm(W_true/norm_W_true - W_est/norm_W_est))**2
 
-def count_accuracy(W_bin_true, W_bin_est):
+def _as_binary_graph(W):
+    """Return a binary adjacency matrix, expanding -1 entries as undirected edges."""
+    W = np.asarray(W)
+    A = (W != 0).astype(int)
+    undirected = np.argwhere(W == -1)
+    for i, j in undirected:
+        A[i, j] = 1
+        A[j, i] = 1
+    np.fill_diagonal(A, 0)
+    return A
+
+def _has_undirected_edges(A):
+    return np.any(np.triu((A != 0) & (A.T != 0), k=1))
+
+def _skeleton_edges(A):
+    S = (A != 0) | (A.T != 0)
+    return [(i, j) for i in range(A.shape[0]) for j in range(i + 1, A.shape[0]) if S[i, j]]
+
+def _path_matrix(A):
+    reach = A.astype(bool).copy()
+    np.fill_diagonal(reach, True)
+    for k in range(A.shape[0]):
+        reach |= reach[:, [k]] & reach[[k], :]
+    return reach
+
+def _v_structures(A):
+    """Return unshielded colliders a -> b <- c in a directed graph or CPDAG."""
+    A = A.astype(bool)
+    S = A | A.T
+    v_structs = set()
+    for b in range(A.shape[0]):
+        parents = np.flatnonzero(A[:, b] & ~A[b, :])
+        for idx, a in enumerate(parents):
+            for c in parents[idx + 1:]:
+                if not S[a, c]:
+                    v_structs.add((min(a, c), b, max(a, c)))
+    return v_structs
+
+def _is_d_separator(A, x, y, z):
+    """D-separation test via ancestral moralization."""
+    z = set(z)
+    if x in z or y in z:
+        return False
+
+    reach = _path_matrix(A)
+    nodes = set(z) | {x, y}
+    ancestral = np.any(reach[:, list(nodes)], axis=1)
+    ancestral_nodes = np.flatnonzero(ancestral)
+    idx = {node: pos for pos, node in enumerate(ancestral_nodes)}
+
+    sub = A[np.ix_(ancestral_nodes, ancestral_nodes)].astype(bool)
+    moral = sub | sub.T
+    for child in range(sub.shape[0]):
+        parents = np.flatnonzero(sub[:, child])
+        for i, parent_i in enumerate(parents):
+            for parent_j in parents[i + 1:]:
+                moral[parent_i, parent_j] = True
+                moral[parent_j, parent_i] = True
+
+    if x not in idx or y not in idx:
+        return True
+
+    blocked = {idx[node] for node in z if node in idx}
+    start = idx[x]
+    target = idx[y]
+    if start in blocked or target in blocked:
+        return False
+
+    seen = {start}
+    stack = [start]
+    while stack:
+        node = stack.pop()
+        if node == target:
+            return False
+        neighbors = np.flatnonzero(moral[node])
+        for neighbor in neighbors:
+            if neighbor not in seen and neighbor not in blocked:
+                seen.add(neighbor)
+                stack.append(neighbor)
+
+    return True
+
+def _is_valid_parent_adjustment(true_dag, intervention, outcome, adjustment):
+    """Check whether adjustment is valid for intervention -> outcome in true_dag."""
+    adjustment = set(adjustment)
+    if intervention in adjustment or outcome in adjustment:
+        return False
+
+    reach = _path_matrix(true_dag)
+    descendants = set(np.flatnonzero(reach[intervention])) - {intervention}
+    if adjustment & descendants:
+        return False
+
+    backdoor_graph = true_dag.copy()
+    backdoor_graph[intervention, :] = 0
+    return _is_d_separator(backdoor_graph, intervention, outcome, adjustment)
+
+def structural_intervention_distance(W_bin_true, W_bin_est):
+    """Compute SID between a true DAG and an estimated DAG.
+
+    The implementation counts ordered node pairs for which the parent adjustment
+    set implied by the estimated graph is not valid in the true graph.
+    """
+    true_dag = _as_binary_graph(W_bin_true)
+    est_dag = _as_binary_graph(W_bin_est)
+
+    if _has_undirected_edges(true_dag) or not is_dag(true_dag):
+        raise ValueError("W_bin_true must be a DAG.")
+    if _has_undirected_edges(est_dag) or not is_dag(est_dag):
+        raise ValueError("W_bin_est must be a DAG for SID. Use sid_c for CPDAGs.")
+
+    n_nodes = true_dag.shape[0]
+    sid = 0
+    incorrect = np.zeros((n_nodes, n_nodes), dtype=int)
+    parents_est = [set(np.flatnonzero(est_dag[:, i])) for i in range(n_nodes)]
+    reach_true = _path_matrix(true_dag)
+    reach_est = _path_matrix(est_dag)
+
+    for i in range(n_nodes):
+        for j in range(n_nodes):
+            if i == j:
+                continue
+            if not reach_est[i, j]:
+                is_correct = not reach_true[i, j]
+            else:
+                is_correct = _is_valid_parent_adjustment(true_dag, i, j, parents_est[i])
+
+            if not is_correct:
+                incorrect[i, j] = 1
+                sid += 1
+
+    return sid, incorrect
+
+def sid(W_bin_true, W_bin_est, normalize=False):
+    """Compute Structural Intervention Distance (SID) for two DAGs."""
+    value, _ = structural_intervention_distance(W_bin_true, W_bin_est)
+    if normalize:
+        n_nodes = np.asarray(W_bin_true).shape[0]
+        return value / n_nodes
+    return value
+
+def _enumerate_mec_dags_from_dag(dag, max_edges=20):
+    edges = _skeleton_edges(dag)
+    if len(edges) > max_edges:
+        raise ValueError(
+            f"SID-C enumerates Markov-equivalent DAGs; skeleton has {len(edges)} "
+            f"edges, above max_edges={max_edges}."
+        )
+
+    target_v_structures = _v_structures(dag)
+    n_nodes = dag.shape[0]
+    for mask in range(1 << len(edges)):
+        candidate = np.zeros((n_nodes, n_nodes), dtype=int)
+        for bit, (i, j) in enumerate(edges):
+            if (mask >> bit) & 1:
+                candidate[i, j] = 1
+            else:
+                candidate[j, i] = 1
+        if is_dag(candidate) and _v_structures(candidate) == target_v_structures:
+            yield candidate
+
+def _enumerate_cpdag_extensions(cpdag, max_undirected_edges=20):
+    n_nodes = cpdag.shape[0]
+    directed = [
+        (i, j)
+        for i in range(n_nodes)
+        for j in range(n_nodes)
+        if i != j and cpdag[i, j] and not cpdag[j, i]
+    ]
+    undirected = [
+        (i, j)
+        for i in range(n_nodes)
+        for j in range(i + 1, n_nodes)
+        if cpdag[i, j] and cpdag[j, i]
+    ]
+    if len(undirected) > max_undirected_edges:
+        raise ValueError(
+            f"SID-C enumerates CPDAG extensions; CPDAG has {len(undirected)} "
+            f"undirected edges, above max_undirected_edges={max_undirected_edges}."
+        )
+
+    target_v_structures = _v_structures(cpdag)
+    for mask in range(1 << len(undirected)):
+        candidate = np.zeros((n_nodes, n_nodes), dtype=int)
+        for i, j in directed:
+            candidate[i, j] = 1
+        for bit, (i, j) in enumerate(undirected):
+            if (mask >> bit) & 1:
+                candidate[i, j] = 1
+            else:
+                candidate[j, i] = 1
+        if is_dag(candidate) and _v_structures(candidate) == target_v_structures:
+            yield candidate
+
+def dag_to_cpdag(W_bin, max_edges=20):
+    """Map a DAG to its CPDAG by enumerating its Markov equivalence class."""
+    dag = _as_binary_graph(W_bin)
+    if _has_undirected_edges(dag) or not is_dag(dag):
+        raise ValueError("W_bin must be a DAG.")
+
+    mec_dags = list(_enumerate_mec_dags_from_dag(dag, max_edges=max_edges))
+    if not mec_dags:
+        raise ValueError("Could not enumerate a Markov equivalence class for W_bin.")
+
+    cpdag = np.zeros_like(dag)
+    for i, j in _skeleton_edges(dag):
+        i_to_j = [candidate[i, j] == 1 for candidate in mec_dags]
+        if all(i_to_j):
+            cpdag[i, j] = 1
+        elif not any(i_to_j):
+            cpdag[j, i] = 1
+        else:
+            cpdag[i, j] = 1
+            cpdag[j, i] = 1
+
+    return cpdag
+
+def _cpdag_edge_state(cpdag, i, j):
+    if cpdag[i, j] and cpdag[j, i]:
+        return "undirected"
+    if cpdag[i, j]:
+        return "i_to_j"
+    if cpdag[j, i]:
+        return "j_to_i"
+    return "none"
+
+def shd_c(W_bin_true, W_bin_est, max_edges=20):
+    """Compute SHD-C: SHD after mapping true and estimated DAGs to CPDAGs."""
+    true_cpdag = dag_to_cpdag(W_bin_true, max_edges=max_edges)
+    est_cpdag = dag_to_cpdag(W_bin_est, max_edges=max_edges)
+
+    shd = 0
+    for i in range(true_cpdag.shape[0]):
+        for j in range(i + 1, true_cpdag.shape[0]):
+            if _cpdag_edge_state(true_cpdag, i, j) != _cpdag_edge_state(est_cpdag, i, j):
+                shd += 1
+
+    return shd
+
+def sid_c(W_bin_true, W_bin_est, normalize=False, max_edges=20):
+    """Compute SID-C bounds between a true DAG and an estimated DAG/CPDAG.
+
+    If W_bin_est is a DAG, it is evaluated over its Markov equivalence class. If
+    it is a CPDAG, all consistent DAG extensions are considered. The return value
+    is (lower_bound, upper_bound), matching the best and worst DAG in that class.
+    """
+    true_dag = _as_binary_graph(W_bin_true)
+    est_graph = _as_binary_graph(W_bin_est)
+
+    if _has_undirected_edges(true_dag) or not is_dag(true_dag):
+        raise ValueError("W_bin_true must be a DAG.")
+
+    if _has_undirected_edges(est_graph):
+        candidates = list(_enumerate_cpdag_extensions(est_graph, max_undirected_edges=max_edges))
+    else:
+        if not is_dag(est_graph):
+            raise ValueError("W_bin_est must be a DAG or a CPDAG.")
+        candidates = list(_enumerate_mec_dags_from_dag(est_graph, max_edges=max_edges))
+
+    if not candidates:
+        raise ValueError("Could not enumerate any DAGs for SID-C.")
+
+    values = [structural_intervention_distance(true_dag, candidate)[0] for candidate in candidates]
+    lower = min(values)
+    upper = max(values)
+    if normalize:
+        denom = true_dag.shape[0] * (true_dag.shape[0] - 1)
+        lower /= denom
+        upper /= denom
+
+    return lower, upper
+
+def count_accuracy(W_bin_true, W_bin_est, compute_sid=False, sid_normalize=False,
+                   compute_sid_c=False, sid_c_normalize=False, max_sid_c_edges=20,
+                   compute_shd_c=False, max_shd_c_edges=20):
     """Compute various accuracy metrics for B_bin_est.
 
     true positive = predicted association exists in condition in correct direction.
@@ -125,6 +399,13 @@ def count_accuracy(W_bin_true, W_bin_est):
         B_bin_true (np.ndarray): [d, d] binary adjacency matrix of ground truth. Consists of {0, 1}.
         B_bin_est (np.ndarray): [d, d] estimated binary matrix. Consists of {0, 1, -1}, 
             where -1 indicates undirected edge in CPDAG.
+        compute_sid (bool): if True, also return SID.
+        sid_normalize (bool): if True, divide SID by d.
+        compute_sid_c (bool): if True, also return SID-C lower and upper bounds.
+        sid_c_normalize (bool): if True, divide SID-C by d * (d - 1).
+        max_sid_c_edges (int): maximum number of edges to enumerate for SID-C.
+        compute_shd_c (bool): if True, also return SHD-C.
+        max_shd_c_edges (int): maximum number of edges to enumerate for SHD-C.
 
     Returns:
         fdr: (reverse + false positive) / prediction positive.
@@ -132,6 +413,9 @@ def count_accuracy(W_bin_true, W_bin_est):
         fpr: (reverse + false positive) / condition negative.
         shd: undirected extra + undirected missing + reverse.
         pred_size: prediction positive.
+        sid: returned only if compute_sid is True.
+        sid_c_lower, sid_c_upper: returned only if compute_sid_c is True.
+        shd_c: returned only if compute_shd_c is True.
 
     Code modified from:
         https://github.com/xunzheng/notears/blob/master/notears/utils.py
@@ -164,7 +448,24 @@ def count_accuracy(W_bin_true, W_bin_est):
     false_pos = np.concatenate([false_pos, false_pos_und])
     fdr = float(len(reverse) + len(false_pos)) / max(pred_size, 1)
 
-    return shd, tpr, fdr
+    out = [shd, tpr, fdr]
+
+    if compute_sid:
+        out.append(sid(W_bin_true, W_bin_est, normalize=sid_normalize))
+
+    if compute_sid_c:
+        sid_c_lower, sid_c_upper = sid_c(
+            W_bin_true,
+            W_bin_est,
+            normalize=sid_c_normalize,
+            max_edges=max_sid_c_edges,
+        )
+        out.extend([sid_c_lower, sid_c_upper])
+
+    if compute_shd_c:
+        out.append(shd_c(W_bin_true, W_bin_est, max_edges=max_shd_c_edges))
+
+    return tuple(out)
 
 def display_results(exps_leg, metrics, agg='mean', file_name=None):
     
