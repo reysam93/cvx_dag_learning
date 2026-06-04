@@ -1,3 +1,9 @@
+"""NOTEARS baseline adapted from the official repository.
+
+Original code:
+https://github.com/xunzheng/notears
+"""
+
 import numpy as np
 import scipy.linalg as slin
 import scipy.optimize as sopt
@@ -103,4 +109,3 @@ if __name__ == '__main__':
     np.savetxt('W_est.csv', W_est, delimiter=',')
     acc = utils.count_accuracy(B_true, W_est != 0)
     print(acc)
-

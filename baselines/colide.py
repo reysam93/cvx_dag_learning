@@ -1,3 +1,9 @@
+"""CoLiDE baseline adapted from the official repository.
+
+Original code:
+https://github.com/alexisbellot/CoLiDE
+"""
+
 import numpy as np
 import scipy.linalg as sla
 import numpy.linalg as la

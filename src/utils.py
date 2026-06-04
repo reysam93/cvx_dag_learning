@@ -2,6 +2,7 @@ import numpy as np
 from numpy import linalg as la
 import networkx as nx
 import time
+import warnings
 from pandas import DataFrame
 from IPython.display import display
 
@@ -217,6 +218,8 @@ def structural_intervention_distance(W_bin_true, W_bin_est):
     The implementation counts ordered node pairs for which the parent adjustment
     set implied by the estimated graph is not valid in the true graph.
     """
+    # SID reference: Peters and Buhlmann (2015), Structural Intervention Distance
+    # for Evaluating Causal Graphs.
     true_dag = _as_binary_graph(W_bin_true)
     est_dag = _as_binary_graph(W_bin_est)
 
@@ -247,13 +250,18 @@ def structural_intervention_distance(W_bin_true, W_bin_est):
 
     return sid, incorrect
 
-def sid(W_bin_true, W_bin_est, normalize=False):
-    """Compute Structural Intervention Distance (SID) for two DAGs."""
+def _maybe_normalize_by_nodes(value, n_nodes, normalize):
+    """Normalize graph-distance metrics as in CoLiDE when requested."""
+    return value / n_nodes if normalize else value
+
+def sid(W_bin_true, W_bin_est, normalize=True):
+    """Compute Structural Intervention Distance (SID) for two DAGs.
+
+    If normalize is True, divide by the number of nodes, matching the
+    normalization convention described in the CoLiDE experiments.
+    """
     value, _ = structural_intervention_distance(W_bin_true, W_bin_est)
-    if normalize:
-        n_nodes = np.asarray(W_bin_true).shape[0]
-        return value / n_nodes
-    return value
+    return _maybe_normalize_by_nodes(value, np.asarray(W_bin_true).shape[0], normalize)
 
 def _enumerate_mec_dags_from_dag(dag, max_edges=20):
     edges = _skeleton_edges(dag)
@@ -340,8 +348,12 @@ def _cpdag_edge_state(cpdag, i, j):
         return "j_to_i"
     return "none"
 
-def shd_c(W_bin_true, W_bin_est, max_edges=20):
-    """Compute SHD-C: SHD after mapping true and estimated DAGs to CPDAGs."""
+def shd_c(W_bin_true, W_bin_est, max_edges=20, normalize=False):
+    """Compute SHD-C: SHD after mapping true and estimated DAGs to CPDAGs.
+
+    If normalize is True, divide by the number of nodes, matching the
+    normalization convention described in the CoLiDE experiments.
+    """
     true_cpdag = dag_to_cpdag(W_bin_true, max_edges=max_edges)
     est_cpdag = dag_to_cpdag(W_bin_est, max_edges=max_edges)
 
@@ -351,7 +363,7 @@ def shd_c(W_bin_true, W_bin_est, max_edges=20):
             if _cpdag_edge_state(true_cpdag, i, j) != _cpdag_edge_state(est_cpdag, i, j):
                 shd += 1
 
-    return shd
+    return _maybe_normalize_by_nodes(shd, true_cpdag.shape[0], normalize)
 
 def sid_c(W_bin_true, W_bin_est, normalize=False, max_edges=20):
     """Compute SID-C bounds between a true DAG and an estimated DAG/CPDAG.
@@ -379,47 +391,68 @@ def sid_c(W_bin_true, W_bin_est, normalize=False, max_edges=20):
     values = [structural_intervention_distance(true_dag, candidate)[0] for candidate in candidates]
     lower = min(values)
     upper = max(values)
-    if normalize:
-        denom = true_dag.shape[0] * (true_dag.shape[0] - 1)
-        lower /= denom
-        upper /= denom
 
-    return lower, upper
+    n_nodes = true_dag.shape[0]
+    return (
+        _maybe_normalize_by_nodes(lower, n_nodes, normalize),
+        _maybe_normalize_by_nodes(upper, n_nodes, normalize),
+    )
 
-def count_accuracy(W_bin_true, W_bin_est, compute_sid=False, sid_normalize=False,
+def count_accuracy(W_bin_true, W_bin_est, compute_sid=False, sid_normalize=True,
                    compute_sid_c=False, sid_c_normalize=False, max_sid_c_edges=20,
-                   compute_shd_c=False, max_shd_c_edges=20):
-    """Compute various accuracy metrics for B_bin_est.
+                   compute_shd_c=False, shd_c_normalize=False, max_shd_c_edges=20,
+                   check_input=False, return_dict=False):
+    """Compute graph recovery metrics with NOTEARS/CoLiDE definitions.
 
     true positive = predicted association exists in condition in correct direction.
     reverse = predicted association exists in condition in opposite direction.
     false positive = predicted association does not exist in condition.
 
     Args:
-        B_bin_true (np.ndarray): [d, d] binary adjacency matrix of ground truth. Consists of {0, 1}.
-        B_bin_est (np.ndarray): [d, d] estimated binary matrix. Consists of {0, 1, -1}, 
+        W_bin_true (np.ndarray): [d, d] binary adjacency matrix of ground truth. Consists of {0, 1}.
+        W_bin_est (np.ndarray): [d, d] estimated binary matrix. Consists of {0, 1, -1},
             where -1 indicates undirected edge in CPDAG.
         compute_sid (bool): if True, also return SID.
-        sid_normalize (bool): if True, divide SID by d.
+        sid_normalize (bool): if True, divide SID by the number of nodes.
         compute_sid_c (bool): if True, also return SID-C lower and upper bounds.
-        sid_c_normalize (bool): if True, divide SID-C by d * (d - 1).
+        sid_c_normalize (bool): if True, divide SID-C bounds by the number of nodes.
         max_sid_c_edges (int): maximum number of edges to enumerate for SID-C.
         compute_shd_c (bool): if True, also return SHD-C.
+        shd_c_normalize (bool): if True, divide SHD-C by the number of nodes.
         max_shd_c_edges (int): maximum number of edges to enumerate for SHD-C.
+        check_input (bool): if True, validate inputs as in NOTEARS/CoLiDE.
+        return_dict (bool): if True, return a dict with NOTEARS/CoLiDE metric names.
 
     Returns:
         fdr: (reverse + false positive) / prediction positive.
         tpr: (true positive) / condition positive.
         fpr: (reverse + false positive) / condition negative.
         shd: undirected extra + undirected missing + reverse.
-        pred_size: prediction positive.
+        nnz: prediction positive.
         sid: returned only if compute_sid is True.
         sid_c_lower, sid_c_upper: returned only if compute_sid_c is True.
         shd_c: returned only if compute_shd_c is True.
 
+        By default, returns the legacy tuple used by this project:
+        (shd, tpr, fdr, ...optional metrics). With return_dict=True, returns
+        the NOTEARS/CoLiDE-style dictionary with keys fdr, tpr, fpr, shd, nnz.
+
     Code modified from:
         https://github.com/xunzheng/notears/blob/master/notears/utils.py
     """
+    if check_input:
+        if (W_bin_est == -1).any():  # CPDAG
+            if not ((W_bin_est == 0) | (W_bin_est == 1) | (W_bin_est == -1)).all():
+                raise ValueError("W_bin_est should take value in {0, 1, -1}.")
+            if ((W_bin_est == -1) & (W_bin_est.T == -1)).any():
+                raise ValueError("Undirected edge should only appear once.")
+        else:  # DAG
+            if not ((W_bin_est == 0) | (W_bin_est == 1)).all():
+                raise ValueError("W_bin_est should take value in {0, 1}.")
+            if not is_dag(W_bin_est):
+                raise ValueError("W_bin_est should be a DAG.")
+
+    d = W_bin_true.shape[0]
     pred_und = np.flatnonzero(W_bin_est == -1)
     pred = np.flatnonzero(W_bin_est == 1)
     cond = np.flatnonzero(W_bin_true)
@@ -441,17 +474,25 @@ def count_accuracy(W_bin_true, W_bin_est, compute_sid=False, sid_normalize=False
     true_pos = np.concatenate([true_pos, true_pos_und])
     tpr = float(len(true_pos)) / max(len(cond), 1)
 
-    # Compute FDR
+    # Compute FDR, FPR and prediction size.
     pred_size = len(pred) + len(pred_und)
     false_pos = np.setdiff1d(pred, cond_skeleton, assume_unique=True)
     false_pos_und = np.setdiff1d(pred_und, cond_skeleton, assume_unique=True)
     false_pos = np.concatenate([false_pos, false_pos_und])
     fdr = float(len(reverse) + len(false_pos)) / max(pred_size, 1)
+    cond_neg_size = 0.5 * d * (d - 1) - len(cond)
+    fpr = float(len(reverse) + len(false_pos)) / max(cond_neg_size, 1)
 
-    out = [shd, tpr, fdr]
+    metrics = {
+        'fdr': fdr,
+        'tpr': tpr,
+        'fpr': fpr,
+        'shd': shd,
+        'nnz': pred_size,
+    }
 
     if compute_sid:
-        out.append(sid(W_bin_true, W_bin_est, normalize=sid_normalize))
+        metrics['sid'] = sid(W_bin_true, W_bin_est, normalize=sid_normalize)
 
     if compute_sid_c:
         sid_c_lower, sid_c_upper = sid_c(
@@ -460,11 +501,27 @@ def count_accuracy(W_bin_true, W_bin_est, compute_sid=False, sid_normalize=False
             normalize=sid_c_normalize,
             max_edges=max_sid_c_edges,
         )
-        out.extend([sid_c_lower, sid_c_upper])
+        metrics['sid_c_lower'] = sid_c_lower
+        metrics['sid_c_upper'] = sid_c_upper
 
     if compute_shd_c:
-        out.append(shd_c(W_bin_true, W_bin_est, max_edges=max_shd_c_edges))
+        metrics['shd_c'] = shd_c(
+            W_bin_true,
+            W_bin_est,
+            normalize=shd_c_normalize,
+            max_edges=max_shd_c_edges,
+        )
 
+    if return_dict:
+        return metrics
+
+    out = [metrics['shd'], metrics['tpr'], metrics['fdr']]
+    if compute_sid:
+        out.append(metrics['sid'])
+    if compute_sid_c:
+        out.extend([metrics['sid_c_lower'], metrics['sid_c_upper']])
+    if compute_shd_c:
+        out.append(metrics['shd_c'])
     return tuple(out)
 
 def display_results(exps_leg, metrics, agg='mean', file_name=None):
@@ -473,8 +530,10 @@ def display_results(exps_leg, metrics, agg='mean', file_name=None):
     for key, value in metrics.items():
         metric_str[key] = []
         
-        agg_metric = np.median(value, axis=0) if agg == 'median' else np.mean(value, axis=0)
-        std_metric = np.std(value, axis=0)
+        with warnings.catch_warnings():
+            warnings.simplefilter('ignore', RuntimeWarning)
+            agg_metric = np.nanmedian(value, axis=0) if agg == 'median' else np.nanmean(value, axis=0)
+            std_metric = np.nanstd(value, axis=0)
         for i, _ in enumerate(exps_leg):
             text = f'{agg_metric[i]:.4f}  \u00B1 {std_metric[i]:.4f}'
             metric_str[key].append(text)
