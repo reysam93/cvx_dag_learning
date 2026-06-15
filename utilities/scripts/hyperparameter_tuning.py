@@ -174,6 +174,30 @@ def validate_search_configs(model_const, configs):
             )
 
 
+def print_search_setup(model_const, model_args_grid, fit_hyperparams):
+    def format_values(values, default):
+        if values is None:
+            values = [default]
+        elif not isinstance(values, (list, tuple, set, np.ndarray)):
+            values = [values]
+        return ', '.join(map(str, values))
+
+    print('Search setup:')
+    print(f'  model_const: {model_const.__name__}')
+    print(
+        '  primal_opt: '
+        f'{format_values(model_args_grid.get("primal_opt"), "pgd")}'
+    )
+    print(
+        '  acyclicity: '
+        f'{format_values(model_args_grid.get("acyclicity"), "logdet")}'
+    )
+    print(
+        '  step_type: '
+        f'{format_values(fit_hyperparams.get("step_type"), "fixed")}'
+    )
+
+
 def config2str(config):
     return args2str(config['label_args'])
 
@@ -352,9 +376,9 @@ data_params = {
 
 Hyperparams = {
     'stepsize': [5e-6, 1e-5, 5e-5, 1e-4],
-    'alpha_0': [.01, .1, 2],
+    'alpha_0': [.01, .05, .1, 2],
     'rho_0': [.001, .01, .05],
-    'beta': [1.5],
+    'beta': [1.5, 2],
     's': [1],
     'lamb': [.2],
     'iters_in': [500, 5000, 10000],
@@ -363,9 +387,8 @@ Hyperparams = {
     'h_tol': [1e-4],
     'step_type': [
         'fixed',
-        'local_lipschitz',
     ],
-    'local_lipschitz_scale': [0.75, .8, .9, 1, 1.1, 1.2, 1.5],
+    'local_lipschitz_scale': [1],
     'min_stepsize': [1e-12],
     'max_stepsize': [None],
     'domain_bt_factor': [.5],
@@ -379,6 +402,7 @@ if DATASET == "SACHS":
 def main():
     print('CPUs employed:', N_CPUS)
     print('Looking hyperparameters for dataset', DATASET)
+    print_search_setup(model_const, ModelArgsGrid, Hyperparams)
     # Get combinations of model initialization args, fit hyperparams, and step rules.
     search_configs = build_search_configs(ModelArgsGrid, Hyperparams)
     validate_search_configs(model_const, search_configs)
