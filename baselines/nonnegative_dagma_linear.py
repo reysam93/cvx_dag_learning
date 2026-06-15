@@ -1,4 +1,7 @@
-"""Nonnegative DAGMA baseline.
+"""Nonnegative DAGMA baseline adapted from the official DAGMA implementation.
+
+Original code:
+https://github.com/kevinsbello/dagma
 
 Variant of DAGMA_linear that keeps the classical DAGMA acyclicity penalty
 based on ``sI - W o W`` and projects each Adam step onto nonnegative matrices.
