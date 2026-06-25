@@ -204,18 +204,37 @@ def run_or_load_samples_results(data_p, n_samples_values, exps, n_dags, thr=.2, 
 
 def build_experiments():
     return [
+        # {
+        #     "model": MetMulDagma,
+        #     "args": {
+        #         "stepsize": 3e-4,
+        #         "step_type": "fixed",
+        #         "alpha_0": .01,
+        #         "rho_0": .05,
+        #         "s": 1,
+        #         "lamb": 1e-1,
+        #         "iters_in": 10000,
+        #         "iters_out": 10,
+        #         "beta": 2,
+        #     },
+        #     "init": {"primal_opt": "adam", "acyclicity": "logdet"},
+        #     "adapt_lamb": True,
+        #     "standarize": False,
+        #     "fmt": "o-",
+        #     "leg": "NOMAD-adam-ORIG",
+        # },
         {
             "model": MetMulDagma,
             "args": {
-                "stepsize": 3e-4,
+                "stepsize": 5e-3,
                 "step_type": "fixed",
-                "alpha_0": .01,
-                "rho_0": .05,
+                "alpha_0": .1,
+                "rho_0": .1,
                 "s": 1,
-                "lamb": 1e-1,
-                "iters_in": 10000,
+                "lamb": .2,
+                "iters_in": 5000,
                 "iters_out": 10,
-                "beta": 2,
+                "beta": 1.5,
             },
             "init": {"primal_opt": "adam", "acyclicity": "logdet"},
             "adapt_lamb": True,
@@ -242,6 +261,16 @@ def build_experiments():
             "fmt": "o--",
             "leg": "NOMAD-fista",
         },
+        ##### BASELINES ####
+        ### NoTears
+        {
+            "model": notears_linear,
+            "args": {"loss_type": "l2", "lambda1": .1, "max_iter": 10},
+            "standarize": False,
+            "fmt": "D-",
+            "leg": "NoTears",
+        },
+        ### DAGMA
         {
             "model": DAGMA_linear,
             "init": {"loss_type": "l2"},
@@ -250,6 +279,26 @@ def build_experiments():
             "fmt": "^-",
             "leg": "DAGMA",
         },
+        # {
+        #     "model": MetMulDagma,
+        #     "args": {
+        #         "stepsize": 1e-4,
+        #         "step_type": "fixed",
+        #         "alpha_0": .05,
+        #         "rho_0": .05,
+        #         "s": 1,
+        #         "lamb": .2,
+        #         "iters_in": 10000,
+        #         "iters_out": 50,
+        #         "beta": 1.5,
+        #     },
+        #     "init": {"acyclicity": "logdet", "primal_opt": "fista", "restart": True},
+        #     "adapt_lamb": True,
+        #     "standarize": False,
+        #     "fmt": "o--",
+        #     "leg": "NOMAD-fista-100",
+        # },
+        ### Nonnegative DAGMA
         {
             "model": NonnegativeDAGMA_linear,
             "init": {"loss_type": "l2"},
@@ -268,6 +317,8 @@ def build_experiments():
             "fmt": "s-",
             "leg": "NonDAGMA",
         },
+
+        ### CoLiDE
         {
             "model": colide_ev,
             "args": {"lambda1": .05, "T": 4, "s": [1.0, .9, .8, .7], "warm_iter": 2e4, "max_iter": 7e4, "lr": .0003},
@@ -283,22 +334,23 @@ def build_experiments():
             "fmt": "v-",
             "leg": "CoLiDE",
         },
-        {
-            "model": GOLEM_TF_EV,
-            "args": {
-                "lambda1": 2e-2,
-                "lambda2": 5.0,
-                "num_iter": 100000,
-                "learning_rate": 1e-3,
-                "w_threshold": 0.3,
-                "postprocess": True,
-                "checkpoint": None,
-            },
-            "standarize": False,
-            "adapt_lamb": True,
-            "fmt": ">--",
-            "leg": "GOLEM-EV-Fix",
-        },
+        ### GOLEM
+        # {
+        #     "model": GOLEM_TF_EV,
+        #     "args": {
+        #         "lambda1": 2e-2,
+        #         "lambda2": 5.0,
+        #         "num_iter": 100000,
+        #         "learning_rate": 1e-3,
+        #         "w_threshold": 0.3,
+        #         "postprocess": True,
+        #         "checkpoint": None,
+        #     },
+        #     "standarize": False,
+        #     "adapt_lamb": True,
+        #     "fmt": ">--",
+        #     "leg": "GOLEM-EV-Fix",
+        # },
         {
             "model": GOLEM_TF_EV,
             "args": {
@@ -315,6 +367,7 @@ def build_experiments():
             "fmt": ">-",
             "leg": "GOLEM-EV",
         },
+
     ]
 
 
@@ -343,8 +396,8 @@ def plot_results(metrics, exps, n_samples_values):
 
 
 def main():
-    n_dags = 100
-    n_samples_values = np.array([50, 60, 80, 100, 200, 500, 1000, 5000])
+    n_dags = 50 # 100
+    n_samples_values = np.array([50, 60, 80, 100, 200, 500, 1000, 5000, 10000])
     exps = build_experiments()
 
     n_nodes = 100

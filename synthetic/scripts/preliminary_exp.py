@@ -28,6 +28,7 @@ from sklearn.metrics import f1_score
 import cvxpy as cp
 import random
 import time
+from copy import deepcopy
 from datetime import datetime
 from joblib import Parallel, delayed
 
@@ -37,7 +38,7 @@ import src.utils as utils
 from baselines.colide import colide_ev, colide_nv
 from baselines.dagma_linear import DAGMA_linear
 from baselines.nonnegative_dagma_linear import NonnegativeDAGMA_linear
-from baselines.golem import GOLEM_EV, GOLEM_TF_EV, GOLEM_TF_NV
+from baselines.golem import GOLEM_EV, GOLEM_NV, GOLEM_TF_EV, GOLEM_TF_NV
 from baselines.nofears import NoFearsLinear
 from baselines.notears import notears_linear
 from baselines.sortnregress import VarSortNRegress, R2SortNRegress, RandomSortNRegress
@@ -87,22 +88,29 @@ Exps = [
     #  'init': {'acyclicity': 'logdet', 'primal_opt': 'adam'}, 'standarize': False, 'fix_lamb': False, 'leg': 'PGD-Adam'},
 
     # NOMAD
-    {'model': MetMulDagma, 'args': {'stepsize': 3e-4, 'alpha_0': .01, 'rho_0': .05, 's': 1, 'lamb': .1, 'iters_in': 10000, 'step_type': 'fixed',
-     'iters_out': 10, 'beta': 2}, 'init': {'acyclicity': 'logdet', 'primal_opt': 'adam'}, 'standarize': False,
+    # {'model': MetMulDagma, 'args': {'stepsize': 3e-4, 'alpha_0': .01, 'rho_0': .05, 's': 1, 'lamb': .1, 'iters_in': 10000, 'step_type': 'fixed',
+    #  'iters_out': 10, 'beta': 2}, 'init': {'acyclicity': 'logdet', 'primal_opt': 'adam'}, 'standarize': False,
+    #  'fix_lamb': False, 'leg': 'NOMAD-adam-ORIG'},
+
+    {'model': MetMulDagma, 'args': {'stepsize': 5e-3, 'alpha_0': .1, 'rho_0': .1, 's': 1, 'lamb': .2, 'iters_in': 5000, 'step_type': 'fixed',
+     'iters_out': 10, 'beta': 1.5}, 'init': {'acyclicity': 'logdet', 'primal_opt': 'adam'}, 'standarize': False,
      'fix_lamb': False, 'leg': 'NOMAD-adam'},
+
+    {'model': MetMulDagma, 'args': {'stepsize': 3e-4, 'alpha_0': .1, 'rho_0': .05, 's': 1, 'lamb': .5, 'iters_in': 20000, 'step_type': 'fixed',
+     'iters_out': 50, 'beta': 1.5}, 'init': {'acyclicity': 'logdet', 'primal_opt': 'adam'}, 'standarize': False,
+     'fix_lamb': False, 'leg': 'NOMAD-adam-200'},
 
     {'model': MetMulDagma, 'args': {'stepsize': 1e-5, 'alpha_0': .01, 'rho_0': .01, 's': 1, 'lamb': .2, 'iters_in': 5000, 'step_type': 'fixed',
      'iters_out': 50, 'beta': 1.5}, 'init': {'acyclicity': 'logdet', 'primal_opt': 'fista', 'restart': True}, 'standarize': False,
      'fix_lamb': False, 'leg': 'NOMAD-fista'},
 
-    {'model': MetMulDagma, 'args': {'stepsize': 3e-4, 'alpha_0': 2, 'rho_0': .05, 's': 1, 'lamb': .1, 'iters_in': 10000, 'step_type': 'fixed',
-     'iters_out': 10, 'beta': 2}, 'init': {'acyclicity': 'logdet', 'primal_opt': 'adam'}, 'standarize': False,
-     'fix_lamb': False, 'leg': 'NOMAD-adam-alpha2'},
+    # {'model': MetMulDagma, 'args': {'stepsize': 1e-4, 'alpha_0': .05, 'rho_0': .05, 's': 1, 'lamb': .2, 'iters_in': 10000, 'step_type': 'fixed',
+    #  'iters_out': 50, 'beta': 1.5}, 'init': {'acyclicity': 'logdet', 'primal_opt': 'fista', 'restart': True}, 'standarize': False,
+    #  'fix_lamb': False, 'leg': 'NOMAD-fista-100'},
 
-    {'model': MetMulDagma, 'args': {'stepsize': 1e-5, 'alpha_0': 2, 'rho_0': .01, 's': 1, 'lamb': .2, 'iters_in': 5000, 'step_type': 'fixed',
-     'iters_out': 50, 'beta': 1.5}, 'init': {'acyclicity': 'logdet', 'primal_opt': 'fista', 'restart': True}, 'standarize': False,
-     'fix_lamb': False, 'leg': 'NOMAD-fista-alpha2'},
-
+    {'model': MetMulDagma, 'args': {'stepsize': 5e-5, 'alpha_0': .01, 'rho_0': .01, 's': 1, 'lamb': .5, 'iters_in': 50000, 'step_type': 'fixed',
+     'iters_out': 100, 'beta': 1.5}, 'init': {'acyclicity': 'logdet', 'primal_opt': 'fista', 'restart': True}, 'standarize': False,
+     'fix_lamb': False, 'leg': 'NOMAD-fista-200'},
 
     # # COLIDE - NOMAD
     # {'model': MetMulColide, 'args': {'stepsize': 5e-5, 'alpha_0': .1, 'rho_0': .1, 's': 1, 'lamb': .1, 'iters_in': 30000,
@@ -131,8 +139,12 @@ Exps = [
     {'model': DAGMA_linear, 'init': {'loss_type': 'l2'}, 'args': {'lambda1': .05, 'T': 4, 's': [1.0, .9, .8, .7],
      'warm_iter': 2e4, 'max_iter': 7e4, 'lr': .0003}, 'standarize': False, 'leg': 'DAGMA'},
 
+    # NonnegDAGMA
     {'model': NonnegativeDAGMA_linear, 'init': {'loss_type': 'l2'}, 'args': {'lambda1': .05, 'T': 4, 's': [1.0, .9, .8, .7],
      'warm_iter': 2e4, 'max_iter': 7e4, 'lr': .0003}, 'standarize': False, 'leg': 'NonDAGMA'},
+
+    {'model': NonnegativeDAGMA_linear, 'init': {'loss_type': 'l2'}, 'args': {'lambda1': .74, 'T': 4, 's': [1.0, .9, .8, .7],
+     'warm_iter': 2e4, 'max_iter': 7e4, 'lr': .0003}, 'fix_lamb': False, 'standarize': False, 'leg': 'NonDAGMA-nofix'},
 
     # Colide
     {'model': colide_ev, 'args': {'lambda1': .05, 'T': 4, 's': [1.0, .9, .8, .7], 'warm_iter': 2e4,
@@ -142,29 +154,74 @@ Exps = [
      'max_iter': 7e4, 'lr': .0003}, 'standarize': False, 'leg': 'CoLiDE-NV'},
 
     # GOLEM
-    # {'model': GOLEM_EV, 'args': {'lambda1': 2e-2, 'lambda2': 5.0, 'num_iter': 100000, 'learning_rate': 1e-3, 'w_threshold': 0.3,
-    #  'postprocess': True, 'checkpoint': None}, 'standarize': False, 'fix_lamb': True, 'leg': 'GOLEM-EV-np'},
+    {'model': GOLEM_EV, 'args': {'lambda1': 2e-2, 'lambda2': 5.0, 'num_iter': 100000, 'learning_rate': 1e-3, 'w_threshold': 0.3,
+     'postprocess': True, 'checkpoint': None}, 'standarize': False, 'fix_lamb': True, 'leg': 'GOLEM-EV-np'},
 
-    {'model': GOLEM_TF_EV, 'args': {'lambda1': 2e-2, 'lambda2': 5.0, 'num_iter': 100000, 'learning_rate': 1e-3, 'w_threshold': 0.3,
-     'postprocess': True, 'checkpoint': None}, 'standarize': False, 'fix_lamb': True, 'leg': 'GOLEM-EV'},
-
-    {'model': GOLEM_TF_NV, 'init': {'init_with_ev': True}, 'args': {'lambda1': 2e-3, 'lambda2': 5.0, 'lambda1_ev': 2e-2, 'lambda2_ev': 5.0,
+    {'model': GOLEM_NV, 'init': {'init_with_ev': True}, 'args': {'lambda1': 2e-3, 'lambda2': 5.0, 'lambda1_ev': 2e-2, 'lambda2_ev': 5.0,
      'num_iter': 100000, 'num_iter_ev': 100000, 'learning_rate': 1e-3, 'learning_rate_ev': 1e-3, 'w_threshold': 0.3, 'postprocess': True,
-     'checkpoint': None}, 'standarize': False, 'fix_lamb': True, 'leg': 'GOLEM-NV'},
+     'checkpoint': None}, 'standarize': False, 'fix_lamb': True, 'leg': 'GOLEM-NV-np'},
+
+    # Similar performance but way slower than np implementation
+    # {'model': GOLEM_TF_EV, 'args': {'lambda1': 2e-2, 'lambda2': 5.0, 'num_iter': 100000, 'learning_rate': 1e-3, 'w_threshold': 0.3,
+    #  'postprocess': True, 'checkpoint': None}, 'standarize': False, 'fix_lamb': True, 'leg': 'GOLEM-EV'},
+
+    # {'model': GOLEM_TF_NV, 'init': {'init_with_ev': True}, 'args': {'lambda1': 2e-3, 'lambda2': 5.0, 'lambda1_ev': 2e-2, 'lambda2_ev': 5.0,
+    #  'num_iter': 100000, 'num_iter_ev': 100000, 'learning_rate': 1e-3, 'learning_rate_ev': 1e-3, 'w_threshold': 0.3, 'postprocess': True,
+    #  'checkpoint': None}, 'standarize': False, 'fix_lamb': True, 'leg': 'GOLEM-NV'},
 
     # Regress
     {'model': VarSortNRegress, 'args': {'w_threshold': 0.3}, 'standarize': False, 'fix_lamb': True, 'leg': 'SortNRegress'},
 
-    # {'model': R2SortNRegress, 'args': {}, 'standarize': False, 'fix_lamb': True, 'leg': 'R2-SortNRegress'},
+    # # {'model': R2SortNRegress, 'args': {}, 'standarize': False, 'fix_lamb': True, 'leg': 'R2-SortNRegress'},
 
-    # # DAGuerreotype
-    # {'model': DAGuerreotype, 'init': {'structure': 'sp_map', 'sparsifier': 'l0_ber_ste', 'equations': 'linear', 'loss': 'nll_ev',
-    #  'joint': False, 'nogpu': True, 'standardize': False, 'init_theta': 'zeros', 'num_epochs': 5000, 'num_inner_iters': 200, 'lr': 1e-1,
-    #  'lr_theta': 1e-1, 'pruning_reg': 0.001, 'l2_theta': 0.0005, 'l2_eq': 0.0005}, 'args': {}, 'standarize': False, 'fix_lamb': True, 'leg': 'DAGuerreotype'}
+    # # # DAGuerreotype
+    # # {'model': DAGuerreotype, 'init': {'structure': 'sp_map', 'sparsifier': 'l0_ber_ste', 'equations': 'linear', 'loss': 'nll_ev',
+    # #  'joint': False, 'nogpu': True, 'standardize': False, 'init_theta': 'zeros', 'num_epochs': 5000, 'num_inner_iters': 200, 'lr': 1e-1,
+    # #  'lr_theta': 1e-1, 'pruning_reg': 0.001, 'l2_theta': 0.0005, 'l2_eq': 0.0005}, 'args': {}, 'standarize': False, 'fix_lamb': True, 'leg': 'DAGuerreotype'}
 ]
 
 # Keep model definitions and hyperparameters identical; only the input scale changes.
 Exps_standardized = [{**exp, 'standarize': True} for exp in Exps]
+
+
+def get_exp_by_leg(exps, leg):
+    for exp in exps:
+        if exp['leg'] == leg:
+            return exp
+    raise ValueError(f'Experiment not found: {leg}')
+
+
+def copy_with_iteration_budget(exps, base_leg, reference_leg, new_leg):
+    exp = deepcopy(get_exp_by_leg(exps, base_leg))
+    reference = get_exp_by_leg(exps, reference_leg)
+    for key in ('iters_in', 'iters_out'):
+        exp['args'][key] = reference['args'][key]
+    exp['leg'] = new_leg
+    return exp
+
+
+def add_n200_iteration_controls(exps):
+    adam_control = copy_with_iteration_budget(
+        exps,
+        base_leg='NOMAD-adam',
+        reference_leg='NOMAD-adam-200',
+        new_leg='NOMAD-adam-iters200',
+    )
+    fista_control = copy_with_iteration_budget(
+        exps,
+        base_leg='NOMAD-fista',
+        reference_leg='NOMAD-fista-200',
+        new_leg='NOMAD-fista-iters200',
+    )
+
+    exps_n200 = []
+    for exp in deepcopy(exps):
+        exps_n200.append(exp)
+        if exp['leg'] == 'NOMAD-adam-200':
+            exps_n200.append(adam_control)
+        elif exp['leg'] == 'NOMAD-fista-200':
+            exps_n200.append(fista_control)
+    return exps_n200
 
 
 # In[3]:
@@ -230,7 +287,10 @@ def run_exps(g, data_p, exps, thr=.3, verb=False):
 
         args = exp['args'].copy()
         if 'fix_lamb' in exp.keys() and not exp['fix_lamb']:
-            args['lamb'] = get_lamb_value(N, M, args['lamb'])
+            if 'lamb' in args:
+                args['lamb'] = get_lamb_value(N, M, args['lamb'])
+            elif 'lambda1' in args:
+                args['lambda1'] = get_lamb_value(N, M, args['lambda1'])
 
         if 'know_var' in exp.keys() and exp['know_var']:
             args['Sigma'] = data_p['var']
@@ -368,7 +428,8 @@ data_params = {
     'w_range': (.5, 2),  # (.5, 1)
     'var': 1
 }
-metrics, tables, exps_leg = run_or_load_preliminary_results(data_params, Exps, n_dags, SCENARIO_NAME, thr=.3, verb=verb)
+Exps_N200 = add_n200_iteration_controls(Exps)
+metrics, tables, exps_leg = run_or_load_preliminary_results(data_params, Exps_N200, n_dags, SCENARIO_NAME, thr=.3, verb=verb)
 
 
 # In[5]:
