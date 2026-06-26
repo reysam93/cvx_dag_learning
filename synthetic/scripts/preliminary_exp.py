@@ -409,35 +409,6 @@ def run_or_load_preliminary_results(data_p, exps, n_dags, scenario_name, thr=.3,
 
 
 
-# ## CASE 0 - N=200, Weights - [0.5, 2]
-
-# In[4]:
-
-
-N = 200
-SCENARIO_NAME = 'er4_N200_var1'
-
-n_dags = 50
-verb = True
-data_params = {
-    'n_nodes': N,
-    'n_samples': 1000, # 1000,
-    'graph_type': 'er',
-    'edges': 4*N,
-    'edge_type': 'positive',
-    'w_range': (.5, 2),  # (.5, 1)
-    'var': 1
-}
-Exps_N200 = add_n200_iteration_controls(Exps)
-metrics, tables, exps_leg = run_or_load_preliminary_results(data_params, Exps_N200, n_dags, SCENARIO_NAME, thr=.3, verb=verb)
-
-
-# In[5]:
-
-
-# Results are displayed by run_or_load_preliminary_results.
-
-
 # ## CASE 1 - N=50, Homocedastic
 
 # In[6]:
@@ -489,6 +460,35 @@ metrics, tables, exps_leg = run_or_load_preliminary_results(data_params, Exps, n
 
 
 # In[9]:
+
+
+# Results are displayed by run_or_load_preliminary_results.
+
+
+# ## CASE 0 - N=200, Weights - [0.5, 2]
+
+# In[4]:
+
+
+N = 200
+SCENARIO_NAME = 'er4_N200_var1'
+
+n_dags = 50
+verb = True
+data_params = {
+    'n_nodes': N,
+    'n_samples': 1000, # 1000,
+    'graph_type': 'er',
+    'edges': 4*N,
+    'edge_type': 'positive',
+    'w_range': (.5, 2),  # (.5, 1)
+    'var': 1
+}
+Exps_N200 = add_n200_iteration_controls(Exps)
+metrics, tables, exps_leg = run_or_load_preliminary_results(data_params, Exps_N200, n_dags, SCENARIO_NAME, thr=.3, verb=verb)
+
+
+# In[5]:
 
 
 # Results are displayed by run_or_load_preliminary_results.
