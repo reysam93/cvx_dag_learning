@@ -158,6 +158,7 @@ code_aux/
 
 # Local experiment variants and generated backups
 backups/
+results/
 *_copy.*
 *_local.*
 *_OLD/
