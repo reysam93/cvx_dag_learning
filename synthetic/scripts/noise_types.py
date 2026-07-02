@@ -23,17 +23,16 @@ from joblib import Parallel, delayed
 from sklearn.metrics import f1_score
 
 import src.utils as utils
-from src.model import MetMulDagma, MetMulColide
+from src.model import MetMulDagma
 
 from baselines.colide import colide_ev, colide_nv
 from baselines.dagma_linear import DAGMA_linear
-from baselines.golem import GOLEM_EV, GOLEM_NV
-from baselines.nofears import NoFearsLinear
+from baselines.golem import GOLEM_EV
 from baselines.notears import notears_linear
 from baselines.nonnegative_dagma_linear import NonnegativeDAGMA_linear
 
 
-PATH = str(ROOT / "results" / "var") + os.sep
+PATH = str(ROOT / "results" / "noise") + os.sep
 SAVE = True
 LOAD = False
 SEED = 10
@@ -43,23 +42,44 @@ JOBLIB_VERBOSE = max(0, int(os.environ.get("JOBLIB_VERBOSE", 0)))
 N_DAGS = 50
 THR = .2
 VERB = False
+LOG_BASELINE_RESULTS = True
+RUN_EXPERIMENTS = ("samples", "variance")
+
+N_SAMPLES_VALUES = np.array([50, 60, 80, 100, 200, 500, 1000, 5000, 10000])
 VAR_VALUES = np.array([1, 5, 10, 15, 20, 25, 30])
-HETERO_VAR_RANGE = (.5, 5.0)
+NOISE_TYPES = ("normal", "exp", "gumbel", "laplace")
 JOINT_AGGS = ("mean", "median")
 SKIP_IDX = []
 
 BASE_DATA_PARAMS = {
     "graph_type": "er",
     "n_nodes": 100,
-    "edges": 4,  # Edges per node; converted to total edges inside run_var_exp.
+    "edges": 4,  # Edges per node; converted to total edges inside run_noise_exp.
     "edge_type": "positive",
     "w_range": (.5, 1),
     "n_samples": 1000,
+    "var": 1,
 }
 
+NOISE_SCENARIOS = [
+    {"name": "Gaussian", "suffix": "normal", "noise_type": "normal", "line_style": "-"},
+    {"name": "Exponential", "suffix": "exp", "noise_type": "exp", "line_style": "--"},
+    {"name": "Gumbel", "suffix": "gumbel", "noise_type": "gumbel", "line_style": ":"},
+    {"name": "Laplace", "suffix": "laplace", "noise_type": "laplace", "line_style": "-."},
+]
+
+# Set to None to run every noise scenario from NOISE_SCENARIOS.
+SELECTED_NOISE_TYPES = list(NOISE_TYPES)
+
 # Set to None to run every experiment from build_experiments().
-# Example: SELECTED_EXPERIMENT_LEGS = ["MM-adam", "MM-fista", "DAGMA"]
 SELECTED_EXPERIMENT_LEGS = None
+# SELECTED_EXPERIMENT_LEGS = [
+#     "NOMAD-adam",
+#     "NOMAD-fista",
+#     "NonDAGMA",
+#     "CoLiDE-EV",
+#     "GOLEM-EV",
+# ]
 
 np.random.seed(SEED)
 os.makedirs(PATH, exist_ok=True)
@@ -74,32 +94,6 @@ signal.signal(signal.SIGTERM, _handle_termination)
 
 def get_lamb_value(n_nodes, n_samples, times=1):
     return np.sqrt(np.log(n_nodes) / n_samples) * times
-
-
-def build_scenarios(data_p):
-    rng = np.random.default_rng(SEED)
-    hetero_profile = rng.uniform(
-        low=HETERO_VAR_RANGE[0],
-        high=HETERO_VAR_RANGE[1],
-        size=data_p["n_nodes"],
-    ) ** 2
-
-    return [
-        {
-            "name": "homocedastic",
-            "suffix": "hom",
-            "data_params": data_p.copy(),
-            "noise_profile": None,
-            "line_style": "-",
-        },
-        {
-            "name": "heterocedastic",
-            "suffix": "hetero",
-            "data_params": data_p.copy(),
-            "noise_profile": hetero_profile,
-            "line_style": "--",
-        },
-    ]
 
 
 def build_experiments():
@@ -142,58 +136,6 @@ def build_experiments():
             "fmt": "o--",
             "leg": "NOMAD-fista",
         },
-        # {
-        #     "model": MetMulDagma,
-        #     "args": {
-        #         "stepsize": 3e-4,
-        #         "alpha_0": .01,
-        #         "rho_0": .05,
-        #         "s": 1,
-        #         "lamb": .05,
-        #         "iters_in": 10000,
-        #         "iters_out": 10,
-        #         "beta": 2,
-        #     },
-        #     "init": {"primal_opt": "adam", "acyclicity": "logdet"},
-        #     "adapt_lamb": True,
-        #     "sigma_known": True,
-        #     "standarize": False,
-        #     "fmt": "o:",
-        #     "leg": "MM-Logdet-Sigma",
-        # },
-
-        ##### BASELINES ####
-        ### NoFears
-        {
-            "model": NoFearsLinear,
-            "args": {
-                "lambda1": .1,
-                "w_threshold": .3,
-                "max_iter": 100,
-                "h_tol": 1e-10,
-                "rho_init": 1.,
-                "rho_factor": 10.,
-                "rho_max": 1e16,
-                "h_progress_rate": .25,
-                "w_tol": 1e-10,
-                "pen_tol": 0.,
-                "rev_edges": "alt-full",
-                "minimize_z": True,
-                "init_no_pen": True,
-                "no_pen": False,
-            },
-            "standarize": False,
-            "fmt": "D-",
-            "leg": "NoFears",
-        },
-        {
-            "model": DAGMA_linear,
-            "init": {"loss_type": "l2"},
-            "args": {"lambda1": .05, "T": 4, "s": [1.0, .9, .8, .7], "warm_iter": 2e4, "max_iter": 7e4, "lr": .0003},
-            "standarize": False,
-            "fmt": "^-",
-            "leg": "DAGMA",
-        },
         {
             "model": NonnegativeDAGMA_linear,
             "init": {"loss_type": "l2"},
@@ -203,7 +145,6 @@ def build_experiments():
             "fmt": "s--",
             "leg": "NonDAGMA",
         },
-        ### CoLiDE
         {
             "model": colide_ev,
             "args": {"lambda1": .05, "T": 4, "s": [1.0, .9, .8, .7], "warm_iter": 2e4, "max_iter": 7e4, "lr": .0003},
@@ -211,14 +152,6 @@ def build_experiments():
             "fmt": "v--",
             "leg": "CoLiDE-EV",
         },
-        {
-            "model": colide_nv,
-            "args": {"lambda1": .05, "T": 4, "s": [1.0, .9, .8, .7], "warm_iter": 2e4, "max_iter": 7e4, "lr": .0003},
-            "standarize": False,
-            "fmt": "v-",
-            "leg": "CoLiDE-NV",
-        },
-        ### GOLEM
         {
             "model": GOLEM_EV,
             "args": {
@@ -233,26 +166,6 @@ def build_experiments():
             "standarize": False,
             "fmt": ">--",
             "leg": "GOLEM-EV",
-        },
-        {
-            "model": GOLEM_NV,
-            "init": {"init_with_ev": True},
-            "args": {
-                "lambda1": 2e-3,
-                "lambda2": 5.0,
-                "lambda1_ev": 2e-2,
-                "lambda2_ev": 5.0,
-                "num_iter": 100000,
-                "num_iter_ev": 100000,
-                "learning_rate": 1e-3,
-                "learning_rate_ev": 1e-3,
-                "w_threshold": 0.3,
-                "postprocess": True,
-                "checkpoint": None,
-            },
-            "standarize": False,
-            "fmt": ">-",
-            "leg": "GOLEM-NV",
         },
     ]
 
@@ -269,23 +182,82 @@ def filter_experiments(exps, selected_legs):
     return [by_leg[leg] for leg in selected_legs]
 
 
-def run_var_exp(g, data_p, var_values, exps, noise_profile=None, thr=.2, verb=False):
-    shd, tpr, fdr, fscore, err, acyc, runtime, dag_count = [
-        np.zeros((len(var_values), len(exps))) for _ in range(8)
-    ]
+def filter_noise_scenarios(scenarios, selected_noise_types):
+    if selected_noise_types is None:
+        return scenarios
 
-    for i, var in enumerate(var_values):
-        if g % N_CPUS == 0:
-            print(f"Graph: {g + 1}, variance: {var}", flush=True)
+    selected_noise_types = list(selected_noise_types)
+    by_suffix = {scenario["suffix"]: scenario for scenario in scenarios}
+    by_type = {scenario["noise_type"]: scenario for scenario in scenarios}
+    selected = []
+    missing = []
+    for noise_type in selected_noise_types:
+        scenario = by_suffix.get(noise_type, by_type.get(noise_type))
+        if scenario is None:
+            missing.append(noise_type)
+        else:
+            selected.append(scenario)
+    if missing:
+        raise ValueError(f"Unknown noise type(s): {missing}")
+    return selected
 
-        data_p_aux = data_p.copy()
-        data_p_aux["edges"] *= data_p_aux["n_nodes"]
-        data_p_aux["var"] = var if noise_profile is None else noise_profile * var
+
+def sweep_config(experiment_name):
+    if experiment_name == "samples":
+        return {
+            "xvals": np.asarray(N_SAMPLES_VALUES),
+            "xlabel": "Number of samples",
+            "x_label": "samples",
+            "shd_plot_func": "semilogx",
+            "err_plot_func": "loglog",
+        }
+    if experiment_name == "variance":
+        return {
+            "xvals": np.asarray(VAR_VALUES),
+            "xlabel": "Noise variance",
+            "x_label": "variance",
+            "shd_plot_func": "plot",
+            "err_plot_func": "semilogy",
+        }
+    raise ValueError(f"Unknown experiment: {experiment_name}")
+
+
+def data_params_for_xval(base_data_p, scenario, experiment_name, xval):
+    data_p_aux = base_data_p.copy()
+    data_p_aux["edges"] *= data_p_aux["n_nodes"]
+    data_p_aux["noise_type"] = scenario["noise_type"]
+
+    if experiment_name == "samples":
+        data_p_aux["n_samples"] = int(xval)
+        data_p_aux["var"] = 1
+    elif experiment_name == "variance":
         data_p_aux["n_samples"] = (
             10 * data_p_aux["n_nodes"]
             if data_p_aux["n_samples"] is None
             else data_p_aux["n_samples"]
         )
+        data_p_aux["var"] = xval
+    else:
+        raise ValueError(f"Unknown experiment: {experiment_name}")
+
+    return data_p_aux
+
+
+def run_noise_exp(g, base_data_p, scenario, experiment_name, xvals, exps, thr=.2, verb=False):
+    shd, tpr, fdr, fscore, err, acyc, runtime, dag_count = [
+        np.zeros((len(xvals), len(exps))) for _ in range(8)
+    ]
+    x_label = sweep_config(experiment_name)["x_label"]
+
+    for i, xval in enumerate(xvals):
+        if g % N_CPUS == 0:
+            print(
+                f'Graph: {g + 1}, experiment={experiment_name}, '
+                f'noise={scenario["suffix"]}, {x_label}={xval}',
+                flush=True,
+            )
+
+        data_p_aux = data_params_for_xval(base_data_p, scenario, experiment_name, xval)
 
         W_true, _, X = utils.simulate_sem(**data_p_aux)
         X_std = utils.standarize(X)
@@ -335,7 +307,7 @@ def run_var_exp(g, data_p, var_values, exps, noise_profile=None, thr=.2, verb=Fa
             runtime[i, j] = t_end - t_init
             dag_count[i, j] += 1 if utils.is_dag(W_est_bin) else 0
 
-            if verb and (g % N_CPUS == 0):
+            if (verb or LOG_BASELINE_RESULTS) and (g % N_CPUS == 0):
                 print(
                     f'\t-{exp["leg"]}: shd {shd[i, j]}  -  err: {err[i, j]:.3f}'
                     f"  -  time: {runtime[i, j]:.3f}",
@@ -345,11 +317,14 @@ def run_var_exp(g, data_p, var_values, exps, noise_profile=None, thr=.2, verb=Fa
     return shd, tpr, fdr, fscore, err, acyc, runtime, dag_count
 
 
-def vars_results_prefix(data_p, scenario_suffix):
-    return f'{PATH}var_{scenario_suffix}_{data_p["graph_type"].upper()}graph_{data_p["edges"]}N'
+def noise_results_prefix(experiment_name, scenario, data_p):
+    return (
+        f'{PATH}noise_{experiment_name}_{scenario["suffix"]}_'
+        f'{data_p["graph_type"].upper()}graph_{data_p["edges"]}N'
+    )
 
 
-def save_vars_results(file_prefix, metrics, exps, var_values, scenario_suffix):
+def save_noise_results(file_prefix, metrics, exps, xvals, experiment_name, scenario):
     os.makedirs(PATH, exist_ok=True)
     shd, tpr, fdr, fscore, err, acyc, runtime, dag_count = metrics
     np.savez(
@@ -363,27 +338,29 @@ def save_vars_results(file_prefix, metrics, exps, var_values, scenario_suffix):
         runtime=runtime,
         dag_count=dag_count,
         exps=exps,
-        xvals=var_values,
+        xvals=xvals,
+        experiment_name=experiment_name,
+        noise_scenario=scenario,
     )
     print("SAVED in file:", file_prefix, flush=True)
 
-    agg_error = np.median(err, axis=0)
-    utils.data_to_csv(f"{PATH}vars_{scenario_suffix}_err_med.csv", exps, var_values, agg_error)
-    prctile25 = np.percentile(err, 25, axis=0)
-    utils.data_to_csv(f"{PATH}vars_{scenario_suffix}_err_prctile25.csv", exps, var_values, prctile25)
-    prctile75 = np.percentile(err, 75, axis=0)
-    utils.data_to_csv(f"{PATH}vars_{scenario_suffix}_err_prctile75.csv", exps, var_values, prctile75)
+    prefix = f"{PATH}noise_{experiment_name}_{scenario['suffix']}"
+    utils.data_to_csv(f"{prefix}_err_mean.csv", exps, xvals, np.mean(err, axis=0))
+    utils.data_to_csv(f"{prefix}_err_std.csv", exps, xvals, np.std(err, axis=0))
+    utils.data_to_csv(f"{prefix}_err_med.csv", exps, xvals, np.median(err, axis=0))
+    utils.data_to_csv(f"{prefix}_err_prctile25.csv", exps, xvals, np.percentile(err, 25, axis=0))
+    utils.data_to_csv(f"{prefix}_err_prctile75.csv", exps, xvals, np.percentile(err, 75, axis=0))
+    utils.data_to_csv(f"{prefix}_shd_mean.csv", exps, xvals, np.mean(shd, axis=0))
+    utils.data_to_csv(f"{prefix}_shd_std.csv", exps, xvals, np.std(shd, axis=0))
+    utils.data_to_csv(f"{prefix}_shd_med.csv", exps, xvals, np.median(shd, axis=0))
+    utils.data_to_csv(f"{prefix}_shd_prctile25.csv", exps, xvals, np.percentile(shd, 25, axis=0))
+    utils.data_to_csv(f"{prefix}_shd_prctile75.csv", exps, xvals, np.percentile(shd, 75, axis=0))
 
-    agg_shd = np.mean(shd, axis=0)
-    utils.data_to_csv(f"{PATH}vars_{scenario_suffix}_shd_mean.csv", exps, var_values, agg_shd)
-    std_shd = np.std(shd, axis=0)
-    utils.data_to_csv(f"{PATH}vars_{scenario_suffix}_shd_std.csv", exps, var_values, std_shd)
 
-
-def load_vars_results(file_prefix):
+def load_noise_results(file_prefix):
     file_name = f"{file_prefix}.npz"
     data = np.load(file_name, allow_pickle=True)
-    print("Loaded variance results from", file_name, flush=True)
+    print("Loaded noise results from", file_name, flush=True)
     return (
         data["shd"],
         data["tpr"],
@@ -398,26 +375,41 @@ def load_vars_results(file_prefix):
     )
 
 
-def run_or_load_vars_results(scenario, var_values, exps, n_dags, thr=.2, verb=False):
-    data_p = scenario["data_params"]
-    file_prefix = vars_results_prefix(data_p, scenario["suffix"])
+def print_metric_summary(metrics, exps, experiment_name, scenario):
+    shd, _, _, _, err, _, runtime, _ = metrics
+    print(f'----- Summary experiment={experiment_name}, noise={scenario["suffix"]} -----', flush=True)
+    for j, exp in enumerate(exps):
+        print(
+            f'\t-{exp["leg"]}: mean shd {np.nanmean(shd[:, :, j]):.4f}'
+            f"  -  mean err {np.nanmean(err[:, :, j]):.4f}"
+            f"  -  mean time {np.nanmean(runtime[:, :, j]):.3f}",
+            flush=True,
+        )
+
+
+def run_or_load_noise_results(scenario, experiment_name, xvals, exps, n_dags, thr=.2, verb=False):
+    file_prefix = noise_results_prefix(experiment_name, scenario, BASE_DATA_PARAMS)
 
     if LOAD:
-        return load_vars_results(file_prefix)
+        return load_noise_results(file_prefix)
 
     n_jobs = max(1, min(N_CPUS, n_dags))
-    print(f'Running scenario={scenario["name"]}. CPUs employed: {n_jobs}', flush=True)
+    print(
+        f'Running experiment={experiment_name}, noise={scenario["name"]}. CPUs employed: {n_jobs}',
+        flush=True,
+    )
 
     t_init = perf_counter()
     parallel = Parallel(n_jobs=n_jobs, verbose=JOBLIB_VERBOSE)
     try:
         results = parallel(
-            delayed(run_var_exp)(
+            delayed(run_noise_exp)(
                 g,
-                data_p,
-                var_values,
+                BASE_DATA_PARAMS,
+                scenario,
+                experiment_name,
+                xvals,
                 exps,
-                scenario["noise_profile"],
                 thr,
                 verb,
             )
@@ -437,61 +429,65 @@ def run_or_load_vars_results(scenario, var_values, exps, n_dags, thr=.2, verb=Fa
     print(f"----- Solved in {(t_end - t_init) / 60:.3f} minutes -----", flush=True)
 
     metrics = tuple(np.asarray(metric) for metric in zip(*results))
+    print_metric_summary(metrics, exps, experiment_name, scenario)
     if SAVE:
-        save_vars_results(file_prefix, metrics, exps, var_values, scenario["suffix"])
+        save_noise_results(file_prefix, metrics, exps, xvals, experiment_name, scenario)
 
-    return (*metrics, exps, var_values)
+    return (*metrics, exps, xvals)
 
 
-def plot_results(metrics, exps, var_values, scenario_suffix, skip_idx=None):
+def plot_results(metrics, exps, xvals, experiment_name, scenario, skip_idx=None):
     os.makedirs(PATH, exist_ok=True)
     shd, tpr, fdr, fscore, err, acyc, runtime, dag_count = metrics
-
+    config = sweep_config(experiment_name)
     skip = [] if skip_idx is None else list(skip_idx)
+    prefix = f"{PATH}noise_{experiment_name}_{scenario['suffix']}"
+    title_prefix = f'{experiment_name} - {scenario["name"]}'
+
     fig, _ = utils.plot_shd_error_pair(
-        shd, err, exps, var_values,
-        xlabel="Noise variance",
+        shd, err, exps, xvals,
+        xlabel=config["xlabel"],
         shd_ylabel="Normalized SHD",
         err_ylabel="Fro Error",
         skip_idx=skip,
         agg="mean",
         deviation="std",
         alpha=0.25,
-        shd_plot_func="plot",
-        err_plot_func="semilogy",
-        title=f"{scenario_suffix} - mean",
+        shd_plot_func=config["shd_plot_func"],
+        err_plot_func=config["err_plot_func"],
+        title=f"{title_prefix} - mean",
         figsize=(8, 4),
     )
-    fig.savefig(f"{PATH}vars_{scenario_suffix}_summary_mean.png", bbox_inches="tight")
+    fig.savefig(f"{prefix}_summary_mean.png", bbox_inches="tight")
     plt.close(fig)
 
     fig, _ = utils.plot_shd_error_pair(
-        shd, err, exps, var_values,
-        xlabel="Noise variance",
+        shd, err, exps, xvals,
+        xlabel=config["xlabel"],
         shd_ylabel="Normalized SHD",
         err_ylabel="Fro Error",
         skip_idx=skip,
         agg="median",
         deviation="prctile",
         alpha=0.25,
-        shd_plot_func="plot",
-        err_plot_func="semilogy",
-        title=f"{scenario_suffix} - median",
+        shd_plot_func=config["shd_plot_func"],
+        err_plot_func=config["err_plot_func"],
+        title=f"{title_prefix} - median",
         figsize=(8, 4),
     )
-    fig.savefig(f"{PATH}vars_{scenario_suffix}_summary_median.png", bbox_inches="tight")
+    fig.savefig(f"{prefix}_summary_median.png", bbox_inches="tight")
     plt.close(fig)
 
-    utils.plot_all_metrics(shd, tpr, fdr, fscore, err, acyc, runtime, dag_count, var_values, exps,
-                           skip_idx=skip, agg="mean", dev="std", xlabel="Noise variance")
-    plt.gcf().suptitle(f"{scenario_suffix} - all metrics - mean")
-    plt.savefig(f"{PATH}vars_{scenario_suffix}_all_metrics_mean.png", bbox_inches="tight")
+    utils.plot_all_metrics(shd, tpr, fdr, fscore, err, acyc, runtime, dag_count, xvals, exps,
+                           skip_idx=skip, agg="mean", dev="std", xlabel=config["xlabel"])
+    plt.gcf().suptitle(f"{title_prefix} - all metrics - mean")
+    plt.savefig(f"{prefix}_all_metrics_mean.png", bbox_inches="tight")
     plt.close("all")
 
-    utils.plot_all_metrics(shd, tpr, fdr, fscore, err, acyc, runtime, dag_count, var_values, exps,
-                           skip_idx=skip, agg="median", dev="prctile", xlabel="Noise variance")
-    plt.gcf().suptitle(f"{scenario_suffix} - all metrics - median")
-    plt.savefig(f"{PATH}vars_{scenario_suffix}_all_metrics_median.png", bbox_inches="tight")
+    utils.plot_all_metrics(shd, tpr, fdr, fscore, err, acyc, runtime, dag_count, xvals, exps,
+                           skip_idx=skip, agg="median", dev="prctile", xlabel=config["xlabel"])
+    plt.gcf().suptitle(f"{title_prefix} - all metrics - median")
+    plt.savefig(f"{prefix}_all_metrics_median.png", bbox_inches="tight")
     plt.close("all")
 
 
@@ -505,16 +501,17 @@ def scenario_experiments(exps, suffix, line_style):
     ]
 
 
-def plot_joint_results(scenario_results, agg="mean", skip_idx=None):
+def plot_joint_results(scenario_results, experiment_name, agg="mean", skip_idx=None):
     os.makedirs(PATH, exist_ok=True)
     if len(scenario_results) < 2:
         return
 
     skip = set([] if skip_idx is None else skip_idx)
-    reference_xvals = scenario_results[0]["var_values"]
+    config = sweep_config(experiment_name)
+    reference_xvals = scenario_results[0]["xvals"]
     for result in scenario_results[1:]:
-        if not np.array_equal(reference_xvals, result["var_values"]):
-            raise ValueError("Cannot plot joint results with different variance grids")
+        if not np.array_equal(reference_xvals, result["xvals"]):
+            raise ValueError("Cannot plot joint noise results with different x-value grids")
 
     joint_exps = []
     shd_parts = []
@@ -533,51 +530,69 @@ def plot_joint_results(scenario_results, agg="mean", skip_idx=None):
 
     shd_joint = np.concatenate(shd_parts, axis=2)
     err_joint = np.concatenate(err_parts, axis=2)
-
     deviation = "std" if agg == "mean" else "prctile"
 
     fig, _ = utils.plot_shd_error_pair(
         shd_joint, err_joint, joint_exps, reference_xvals,
-        xlabel="Noise variance",
+        xlabel=config["xlabel"],
         shd_ylabel="Normalized SHD",
         err_ylabel="Fro Error",
         skip_idx=[],
         agg=agg,
         deviation=deviation,
         alpha=0.25,
-        shd_plot_func="plot",
-        err_plot_func="semilogy",
-        title=f"hom vs hetero - {agg}",
+        shd_plot_func=config["shd_plot_func"],
+        err_plot_func=config["err_plot_func"],
+        title=f"noise types - {experiment_name} - {agg}",
         figsize=(10, 5),
     )
-    fig.savefig(f"{PATH}vars_hom_hetero_joint_{agg}.png", bbox_inches="tight")
+    fig.savefig(f"{PATH}noise_{experiment_name}_joint_{agg}.png", bbox_inches="tight")
     plt.close(fig)
+
+
+def validate_run_experiments(run_experiments):
+    valid = {"samples", "variance"}
+    selected = tuple(run_experiments)
+    unknown = [experiment for experiment in selected if experiment not in valid]
+    if unknown:
+        raise ValueError(f"Unknown run experiment(s): {unknown}")
+    return selected
 
 
 def main():
     exps = filter_experiments(build_experiments(), SELECTED_EXPERIMENT_LEGS)
-    var_values = np.asarray(VAR_VALUES)
-    scenario_results = []
+    noise_scenarios = filter_noise_scenarios(NOISE_SCENARIOS, SELECTED_NOISE_TYPES)
+    run_experiments = validate_run_experiments(RUN_EXPERIMENTS)
 
-    for scenario in build_scenarios(BASE_DATA_PARAMS):
-        *metrics, scenario_exps, scenario_var_values = run_or_load_vars_results(
-            scenario,
-            var_values,
-            exps,
-            N_DAGS,
-            thr=THR,
-            verb=VERB,
-        )
-        plot_results(metrics, scenario_exps, scenario_var_values, scenario["suffix"], skip_idx=SKIP_IDX)
-        scenario_results.append({
-            "scenario": scenario,
-            "metrics": metrics,
-            "exps": scenario_exps,
-            "var_values": scenario_var_values,
-        })
+    print(f"Selected experiments: {', '.join(run_experiments)}", flush=True)
+    print(f"Selected noise types: {', '.join(scenario['suffix'] for scenario in noise_scenarios)}", flush=True)
+    print(f"Selected baselines: {', '.join(exp['leg'] for exp in exps)}", flush=True)
 
-    for agg in JOINT_AGGS:
-        plot_joint_results(scenario_results, agg=agg, skip_idx=SKIP_IDX)
+    for experiment_name in run_experiments:
+        config = sweep_config(experiment_name)
+        xvals = np.asarray(config["xvals"])
+        scenario_results = []
+
+        for scenario in noise_scenarios:
+            *metrics, scenario_exps, scenario_xvals = run_or_load_noise_results(
+                scenario,
+                experiment_name,
+                xvals,
+                exps,
+                N_DAGS,
+                thr=THR,
+                verb=VERB,
+            )
+            plot_results(metrics, scenario_exps, scenario_xvals, experiment_name, scenario, skip_idx=SKIP_IDX)
+            scenario_results.append({
+                "scenario": scenario,
+                "metrics": metrics,
+                "exps": scenario_exps,
+                "xvals": scenario_xvals,
+            })
+
+        for agg in JOINT_AGGS:
+            plot_joint_results(scenario_results, experiment_name, agg=agg, skip_idx=SKIP_IDX)
 
 
 if __name__ == "__main__":

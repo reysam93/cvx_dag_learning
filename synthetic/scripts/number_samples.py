@@ -375,12 +375,20 @@ def plot_results(metrics, exps, n_samples_values):
     shd, tpr, fdr, fscore, err, acyc, runtime, dag_count = metrics
 
     skip = []
-    fig, axes = plt.subplots(1, 2, figsize=(10, 5))
-    utils.plot_data(axes[0], shd, exps, n_samples_values, "Number of samples", "SDH", skip,
-                    agg="mean", deviation="std", alpha=0.25)
-    utils.plot_data(axes[1], err, exps, n_samples_values, "Number of samples", "Fro Error", skip,
-                    agg="median", deviation="prctile", alpha=0.25, plot_func="loglog")
-    plt.tight_layout()
+    fig, _ = utils.plot_shd_error_pair(
+        shd, err, exps, n_samples_values,
+        xlabel="Number of samples",
+        shd_ylabel="SDH",
+        err_ylabel="Fro Error",
+        skip_idx=skip,
+        alpha=0.25,
+        shd_agg="mean",
+        shd_deviation="std",
+        err_agg="median",
+        err_deviation="prctile",
+        err_plot_func="loglog",
+        figsize=(10, 5),
+    )
     fig.savefig(f"{PATH}samples_summary.png", bbox_inches="tight")
     plt.close(fig)
 

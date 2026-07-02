@@ -549,7 +549,7 @@ def standarize(X):
     return (X - X.mean(axis=0))/X.std(axis=0)
 
 def plot_data(axes, data, exps, x_vals, xlabel, ylabel, skip_idx=[], agg='mean', deviation=None,
-              alpha=.25, plot_func='semilogx'):
+              alpha=.25, plot_func='semilogx', legend=True):
     if agg == 'median':
         agg_data = np.median(data, axis=0)
     else:
@@ -576,7 +576,74 @@ def plot_data(axes, data, exps, x_vals, xlabel, ylabel, skip_idx=[], agg='mean',
     axes.set_xlabel(xlabel)
     axes.set_ylabel(ylabel)
     axes.grid(True)
-    axes.legend()
+    if legend:
+        axes.legend()
+
+def shared_legend(fig, axes, ncol=4, y=0.91):
+    handles = []
+    labels = []
+    seen = set()
+    for ax in np.ravel(axes):
+        ax_handles, ax_labels = ax.get_legend_handles_labels()
+        for handle, label in zip(ax_handles, ax_labels):
+            if label in seen:
+                continue
+            handles.append(handle)
+            labels.append(label)
+            seen.add(label)
+
+    if not handles:
+        return None
+
+    return fig.legend(
+        handles,
+        labels,
+        loc='upper center',
+        bbox_to_anchor=(0.5, y),
+        ncol=min(ncol, len(labels)),
+        frameon=False,
+    )
+
+def shared_legend_top(n_labels, ncol=4):
+    if n_labels <= 0:
+        return 0.95
+    rows = int(np.ceil(n_labels / max(1, ncol)))
+    return max(0.58, 0.83 - 0.045 * (rows - 1))
+
+def shared_legend_rows(n_labels, ncol=4):
+    if n_labels <= 0:
+        return 0
+    return int(np.ceil(n_labels / max(1, ncol)))
+
+def plot_shd_error_pair(shd, err, exps, x_vals, xlabel, shd_ylabel, err_ylabel, skip_idx=[],
+                        agg='mean', deviation=None, alpha=.25, shd_plot_func='semilogx',
+                        err_plot_func='loglog', title=None, figsize=(8, 4),
+                        legend_ncol=4, shd_agg=None, err_agg=None, shd_deviation=None,
+                        err_deviation=None):
+    n_labels = len([i for i in range(len(exps)) if i not in set(skip_idx)])
+    legend_rows = shared_legend_rows(n_labels, legend_ncol)
+    if legend_rows:
+        figsize = (figsize[0], figsize[1] + 0.25 * legend_rows)
+
+    fig, axes = plt.subplots(1, 2, figsize=figsize)
+    shd_agg = agg if shd_agg is None else shd_agg
+    err_agg = agg if err_agg is None else err_agg
+    shd_deviation = deviation if shd_deviation is None else shd_deviation
+    err_deviation = deviation if err_deviation is None else err_deviation
+
+    plot_data(axes[0], shd, exps, x_vals, xlabel, shd_ylabel, skip_idx,
+              agg=shd_agg, deviation=shd_deviation, alpha=alpha, plot_func=shd_plot_func,
+              legend=False)
+    plot_data(axes[1], err, exps, x_vals, xlabel, err_ylabel, skip_idx,
+              agg=err_agg, deviation=err_deviation, alpha=alpha, plot_func=err_plot_func,
+              legend=False)
+
+    if title is not None:
+        fig.suptitle(title)
+
+    shared_legend(fig, axes, ncol=legend_ncol)
+    fig.tight_layout(rect=(0, 0, 1, shared_legend_top(n_labels, legend_ncol)))
+    return fig, axes
 
 def plot_all_metrics(shd, tpr, fdr, fscore, err, acyc, runtime, dag_count, x_vals, exps, 
                      agg='mean', skip_idx=[], dev=False, alpha=.25, xlabel='Number of samples'):
