@@ -43,7 +43,7 @@ N_DAGS = 50
 THR = .2
 VERB = False
 LOG_BASELINE_RESULTS = True
-RUN_EXPERIMENTS = ("samples", "variance")
+RUN_EXPERIMENTS = ["samples", "variance"]
 
 N_SAMPLES_VALUES = np.array([50, 60, 80, 100, 200, 500, 1000, 5000, 10000])
 VAR_VALUES = np.array([1, 5, 10, 15, 20, 25, 30])
@@ -436,13 +436,28 @@ def run_or_load_noise_results(scenario, experiment_name, xvals, exps, n_dags, th
     return (*metrics, exps, xvals)
 
 
-def plot_results(metrics, exps, xvals, experiment_name, scenario, skip_idx=None):
-    os.makedirs(PATH, exist_ok=True)
+def _resolve_save(save):
+    return SAVE if save is None else save
+
+
+def _savefig(fig, fname, save):
+    if save:
+        os.makedirs(PATH, exist_ok=True)
+        fig.savefig(fname, bbox_inches="tight")
+
+
+def _figures_created_since(existing_figures):
+    return [plt.figure(num) for num in plt.get_fignums() if num not in existing_figures]
+
+
+def plot_results(metrics, exps, xvals, experiment_name, scenario, skip_idx=None, save=None, close=True):
+    save = _resolve_save(save)
     shd, tpr, fdr, fscore, err, acyc, runtime, dag_count = metrics
     config = sweep_config(experiment_name)
     skip = [] if skip_idx is None else list(skip_idx)
     prefix = f"{PATH}noise_{experiment_name}_{scenario['suffix']}"
     title_prefix = f'{experiment_name} - {scenario["name"]}'
+    figures = []
 
     fig, _ = utils.plot_shd_error_pair(
         shd, err, exps, xvals,
@@ -458,8 +473,8 @@ def plot_results(metrics, exps, xvals, experiment_name, scenario, skip_idx=None)
         title=f"{title_prefix} - mean",
         figsize=(8, 4),
     )
-    fig.savefig(f"{prefix}_summary_mean.png", bbox_inches="tight")
-    plt.close(fig)
+    figures.append(fig)
+    _savefig(fig, f"{prefix}_summary_mean.png", save)
 
     fig, _ = utils.plot_shd_error_pair(
         shd, err, exps, xvals,
@@ -475,20 +490,31 @@ def plot_results(metrics, exps, xvals, experiment_name, scenario, skip_idx=None)
         title=f"{title_prefix} - median",
         figsize=(8, 4),
     )
-    fig.savefig(f"{prefix}_summary_median.png", bbox_inches="tight")
-    plt.close(fig)
+    figures.append(fig)
+    _savefig(fig, f"{prefix}_summary_median.png", save)
 
+    existing_figures = set(plt.get_fignums())
     utils.plot_all_metrics(shd, tpr, fdr, fscore, err, acyc, runtime, dag_count, xvals, exps,
                            skip_idx=skip, agg="mean", dev="std", xlabel=config["xlabel"])
-    plt.gcf().suptitle(f"{title_prefix} - all metrics - mean")
-    plt.savefig(f"{prefix}_all_metrics_mean.png", bbox_inches="tight")
-    plt.close("all")
+    all_metric_figures = _figures_created_since(existing_figures)
+    fig = plt.gcf()
+    fig.suptitle(f"{title_prefix} - all metrics - mean")
+    figures.extend(all_metric_figures)
+    _savefig(fig, f"{prefix}_all_metrics_mean.png", save)
 
+    existing_figures = set(plt.get_fignums())
     utils.plot_all_metrics(shd, tpr, fdr, fscore, err, acyc, runtime, dag_count, xvals, exps,
                            skip_idx=skip, agg="median", dev="prctile", xlabel=config["xlabel"])
-    plt.gcf().suptitle(f"{title_prefix} - all metrics - median")
-    plt.savefig(f"{prefix}_all_metrics_median.png", bbox_inches="tight")
-    plt.close("all")
+    all_metric_figures = _figures_created_since(existing_figures)
+    fig = plt.gcf()
+    fig.suptitle(f"{title_prefix} - all metrics - median")
+    figures.extend(all_metric_figures)
+    _savefig(fig, f"{prefix}_all_metrics_median.png", save)
+
+    if close:
+        plt.close("all")
+
+    return figures
 
 
 def scenario_experiments(exps, suffix, line_style):
@@ -501,10 +527,10 @@ def scenario_experiments(exps, suffix, line_style):
     ]
 
 
-def plot_joint_results(scenario_results, experiment_name, agg="mean", skip_idx=None):
-    os.makedirs(PATH, exist_ok=True)
+def plot_joint_results(scenario_results, experiment_name, agg="mean", skip_idx=None, save=None, close=True):
+    save = _resolve_save(save)
     if len(scenario_results) < 2:
-        return
+        return None
 
     skip = set([] if skip_idx is None else skip_idx)
     config = sweep_config(experiment_name)
@@ -546,8 +572,10 @@ def plot_joint_results(scenario_results, experiment_name, agg="mean", skip_idx=N
         title=f"noise types - {experiment_name} - {agg}",
         figsize=(10, 5),
     )
-    fig.savefig(f"{PATH}noise_{experiment_name}_joint_{agg}.png", bbox_inches="tight")
-    plt.close(fig)
+    _savefig(fig, f"{PATH}noise_{experiment_name}_joint_{agg}.png", save)
+    if close:
+        plt.close(fig)
+    return fig
 
 
 def validate_run_experiments(run_experiments):

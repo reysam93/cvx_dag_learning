@@ -72,9 +72,11 @@ class Nonneg_dagma():
             beta1=.99, beta2=.999, Sigma=1, delta=.01, track_seq=False,
             track_diagnostics=False, step_type='fixed', local_lipschitz_scale=1.0,
             min_stepsize=1e-12, max_stepsize=None, domain_bt_factor=0.5,
-            domain_bt_max_iters=20, domain_bt_tol=1e-12, verb=False):
+            domain_bt_max_iters=20, domain_bt_tol=1e-12, center=True,
+            verb=False):
         
-        self.init_variables_(X, track_seq, track_diagnostics, s, Sigma, beta1, beta2, delta, verb)
+        self.init_variables_(X, track_seq, track_diagnostics, s, Sigma,
+                             beta1, beta2, delta, verb, center)
         self.configure_step_rule_(step_type, local_lipschitz_scale, min_stepsize,
                                   max_stepsize, domain_bt_factor,
                                   domain_bt_max_iters, domain_bt_tol)
@@ -89,10 +91,15 @@ class Nonneg_dagma():
         
         return self.W_est
         
-    def init_variables_(self, X, track_seq, track_diagnostics, s, Sigma, beta1, beta2, delta, verb):
+    def init_variables_(self, X, track_seq, track_diagnostics, s, Sigma, beta1, beta2, delta, verb, center=True):
         self.Gw_obj_func = None # for restart
         self.M, self.N = X.shape
-        self.Cx = X.T @ X / self.M
+        X_work = np.asarray(X)
+        self.center = center
+        self.X_mean_ = X_work.mean(axis=0, keepdims=True) if center else np.zeros((1, self.N))
+        if center:
+            X_work = X_work - self.X_mean_
+        self.Cx = X_work.T @ X_work / self.M
 
         self.W_est = np.zeros_like(self.Cx)
         self.verb = verb
@@ -463,9 +470,11 @@ class MetMulDagma(Nonneg_dagma):
             local_lipschitz_scale=1.0, min_stepsize=1e-12,
             max_stepsize=None, domain_bt_factor=0.5,
             domain_bt_max_iters=20, domain_bt_tol=1e-12,
-            beta1=.99, beta2=.999, Sigma=1, delta=.01, verb=False):
+            beta1=.99, beta2=.999, Sigma=1, delta=.01, center=True,
+            verb=False):
 
-        self.init_variables_(X, rho_0, alpha_0, track_seq, track_diagnostics, s, Sigma, beta1, beta2, delta, verb)        
+        self.init_variables_(X, rho_0, alpha_0, track_seq, track_diagnostics,
+                             s, Sigma, beta1, beta2, delta, verb, center)
         self.h_tol = h_tol
         self.configure_step_rule_(step_type, local_lipschitz_scale, min_stepsize,
                                   max_stepsize, domain_bt_factor,
@@ -552,8 +561,9 @@ class MetMulDagma(Nonneg_dagma):
         grad = G_loss + (alpha + self.rho*acyc_val)*G_acyc
         return grad, stepsize, acyc_val
 
-    def init_variables_(self, X, rho_init, alpha_init, track_seq, track_diagnostics, s, Sigma, beta1, beta2, delta, verb):
-        super().init_variables_(X, track_seq, track_diagnostics, s, Sigma, beta1, beta2, delta, verb)
+    def init_variables_(self, X, rho_init, alpha_init, track_seq, track_diagnostics, s, Sigma, beta1, beta2, delta, verb, center=True):
+        super().init_variables_(X, track_seq, track_diagnostics, s, Sigma,
+                                beta1, beta2, delta, verb, center)
         self.rho = rho_init
         self.alpha = alpha_init
 
@@ -573,9 +583,11 @@ class MetMulColide(MetMulDagma):
             track_diagnostics=False, beta1=.99, beta2=.999, Sigma=None, scale_sig=.01, delta=.01, sca_adam=False, verb=False,
             h_tol=None, step_type='fixed', local_lipschitz_scale=1.0,
             min_stepsize=1e-12, max_stepsize=None, domain_bt_factor=0.5,
-            domain_bt_max_iters=20, domain_bt_tol=1e-12):
+            domain_bt_max_iters=20, domain_bt_tol=1e-12, center=True):
         
-        self.init_variables_(X, rho_0, alpha_0, track_seq, track_diagnostics, s, Sigma, scale_sig, beta1, beta2, delta, verb)        
+        self.init_variables_(X, rho_0, alpha_0, track_seq, track_diagnostics,
+                             s, Sigma, scale_sig, beta1, beta2, delta, verb,
+                             center)
         self.h_tol = h_tol
         self.configure_step_rule_(step_type, local_lipschitz_scale, min_stepsize,
                                   max_stepsize, domain_bt_factor,
@@ -634,12 +646,17 @@ class MetMulColide(MetMulDagma):
             ##############################
         return self.W_est, self.Sigma
     
-    def init_variables_(self, X, rho_init, alpha_init, track_seq, track_diagnostics, s, Sigma_init, scale_sig, beta1, beta2, delta, verb):
+    def init_variables_(self, X, rho_init, alpha_init, track_seq, track_diagnostics, s, Sigma_init, scale_sig, beta1, beta2, delta, verb, center=True):
         # Default initialization of Sigma0        
         if Sigma_init is None:
-            Sigma_init = np.linalg.norm(X, axis=0) / np.sqrt(X.shape[0])
+            X_work = np.asarray(X)
+            if center:
+                X_work = X_work - X_work.mean(axis=0, keepdims=True)
+            Sigma_init = np.linalg.norm(X_work, axis=0) / np.sqrt(X.shape[0])
 
-        super().init_variables_(X, rho_init, alpha_init, track_seq, track_diagnostics, s, Sigma_init, beta1, beta2, delta, verb)
+        super().init_variables_(X, rho_init, alpha_init, track_seq,
+                                track_diagnostics, s, Sigma_init, beta1,
+                                beta2, delta, verb, center)
         
         self.Sigma_0 = Sigma_init * scale_sig
         self.Gsig_obj_func = None # for restart
