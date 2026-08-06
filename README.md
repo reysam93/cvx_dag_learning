@@ -31,7 +31,8 @@ resolve the project root automatically:
 python synthetic/scripts/preliminary_exp.py
 python synthetic/scripts/number_samples.py
 python synthetic/scripts/graph_size.py
-python utilities/scripts/hyperparameter_tuning.py
+python utilities/scripts/tune_synthetic.py
+python utilities/scripts/tune_sachs.py
 python utilities/scripts/diagnostics_run_algorithms.py --quick
 ```
 
