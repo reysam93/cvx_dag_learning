@@ -11,6 +11,30 @@ import matplotlib.pyplot as plt
 def is_dag(W):
     return nx.is_directed_acyclic_graph(nx.DiGraph(W))
 
+
+def to_dag(W, thr=0.3):
+    """Threshold a weighted adjacency matrix and prune cycles.
+
+    This follows the postprocessing used by CoLiDE: coefficients at or below
+    ``thr`` in absolute value are removed first. If cycles remain, their
+    weakest edges are removed until the resulting weighted graph is a DAG.
+    The input matrix is not modified.
+    """
+    W_dag = np.array(W, copy=True)
+    W_dag[np.abs(W_dag) <= thr] = 0
+
+    if is_dag(W_dag):
+        return W_dag
+
+    nonzero = np.where(W_dag != 0)
+    weighted_edges = zip(W_dag[nonzero], nonzero[0], nonzero[1])
+    for _, row, col in sorted(weighted_edges, key=lambda edge: abs(edge[0])):
+        if is_dag(W_dag):
+            break
+        W_dag[row, col] = 0
+
+    return W_dag
+
 def create_dag(n_nodes, graph_type, edges, permute=True, edge_type='positive', w_range=(.5, 1.5),
                rew_prob=.1):
     """
