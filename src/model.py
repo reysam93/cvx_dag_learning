@@ -573,11 +573,17 @@ class MetMulColide(MetMulDagma):
     Method of ultipliers algorithm for learning DAGs with unknown exogenous covarian using a
     convex version of CoLiDE with DAGMA acyclicity constraint
     """
-    def __init__(self, primal_opt='pgd', acyclicity='logdet', restart=False):
+    def __init__(self, primal_opt='pgd', acyclicity='logdet', restart=False, equal_var=False):
         super().__init__(primal_opt, acyclicity, restart)
         if self.opt_type == 'sca':
             self.minimize_primal = self.succ_conv_approx_
-    
+
+        # Noise model: equal variance (CoLiDE-EV, single sigma) or non-equal
+        # variance (CoLiDE-NV, one sigma per node). Both share the same updates
+        # and only differ in how the residual energies are aggregated.
+        self.equal_var = equal_var
+        self.sigma_stats_ = self.sigma_stats_ev_ if equal_var else self.sigma_stats_nv_
+
     def fit(self, X, lamb, stepsize, s=1, iters_in=1000, iters_out=10, checkpoint=250, tol=1e-6,
             beta=5, gamma=.25, rho_0=1, alpha_0=.1, track_seq=False, dec_step=None,
             track_diagnostics=False, beta1=.99, beta2=.999, Sigma=None, scale_sig=.01, delta=.01, sca_adam=False, verb=False,
@@ -595,12 +601,15 @@ class MetMulColide(MetMulDagma):
         self.sca_adam = sca_adam
 
         dagness_prev = self.dagness(self.W_est)
+        # Warm start: Sigma is carried over between outer iterations (bug 1 fix).
+        # self.Sigma_est keeps the initialization only.
+        self.Sigma = self.Sigma_est.copy()
         for i in range(iters_out):
             self._fista_restarts_current = 0
             self.reset_adam_state_()
             # Minimize augmented Lagrangian to estimate W
             self.W_est, self.Sigma, stepsize, dagness = self.minimize_primal(
-                self.W_est, self.Sigma_est, lamb, self.alpha, stepsize,
+                self.W_est, self.Sigma, lamb, self.alpha, stepsize,
                 iters_in, checkpoint, tol, track_seq,
                 initial_acyclicity=dagness_prev
             )
@@ -644,21 +653,45 @@ class MetMulColide(MetMulDagma):
                 print(f'- {i+1}/{iters_out}. Diff W: {self.diff_W[-1]:.6f} | Diff Sigma: {self.diff_Sig[-1]:.6f}' +
                       f' | Acycl: {dagness:.6f} |Rho: {self.rho:.3f} - Alpha: {self.alpha:.3f} - Step: {stepsize:.4f}')
             ##############################
-        return self.W_est, self.Sigma
-    
+        # EV keeps a (1,) array internally and returns the scalar sigma
+        Sigma_out = self.Sigma.item() if self.equal_var else self.Sigma
+        return self.W_est, Sigma_out
+
+    def sigma_stats_nv_(self, W):
+        """Per-node residual energies; each sigma_j is shared by a single node."""
+        return self.quadratic_diag_(W), 1
+
+    def sigma_stats_ev_(self, W):
+        """Total residual energy; the single sigma is shared by all N nodes."""
+        return np.sum(self.quadratic_diag_(W), keepdims=True), self.N
+
     def init_variables_(self, X, rho_init, alpha_init, track_seq, track_diagnostics, s, Sigma_init, scale_sig, beta1, beta2, delta, verb, center=True):
-        # Default initialization of Sigma0        
+        # Default initialization of Sigma0
         if Sigma_init is None:
             X_work = np.asarray(X)
             if center:
                 X_work = X_work - X_work.mean(axis=0, keepdims=True)
-            Sigma_init = np.linalg.norm(X_work, axis=0) / np.sqrt(X.shape[0])
+            if self.equal_var:
+                Sigma_init = np.array([la.norm(X_work) / np.sqrt(X_work.size)])
+            else:
+                Sigma_init = np.linalg.norm(X_work, axis=0) / np.sqrt(X.shape[0])
+        elif self.equal_var:
+            Sigma_init = np.asarray(Sigma_init, dtype=float)
+            if Sigma_init.ndim == 2:
+                Sigma_init = np.diag(Sigma_init)
+            Sigma_init = np.atleast_1d(Sigma_init)
+            if not np.allclose(Sigma_init, Sigma_init[0]):
+                raise ValueError('equal_var=True requires a scalar (or constant) Sigma')
+            Sigma_init = Sigma_init[:1].copy()
 
         super().init_variables_(X, rho_init, alpha_init, track_seq,
                                 track_diagnostics, s, Sigma_init, beta1,
                                 beta2, delta, verb, center)
         
-        self.Sigma_0 = Sigma_init * scale_sig
+        # Global floor (bug 2 fix): scalar, relative to the smallest marginal std,
+        # which is of the order of the smallest noise std (root nodes). The old
+        # per-node floor scale_sig*Sigma_init exceeded the true sigma in deep nodes.
+        self.Sigma_0 = scale_sig * np.min(Sigma_init)
         self.Gsig_obj_func = None # for restart
 
         # For Adam
@@ -685,8 +718,8 @@ class MetMulColide(MetMulDagma):
     def proj_grad_step_Sigma_(self, Sigma, W, stepsize, iter):
         self._last_eval_sigma_min = np.min(Sigma)
         # Compute the gradient
-        v_aux = self.quadratic_diag_(W)
-        self.Gsig_obj_func = -.5 / Sigma * v_aux / Sigma + .5
+        q_agg, n_shared = self.sigma_stats_(W)
+        self.Gsig_obj_func = -.5 / Sigma * q_agg / Sigma + .5 * n_shared
         if self.opt_type == 'adam':
             self.Gsig_obj_func, self.opt_m_sig, self.opt_v_sig \
                 = self.compute_adam_grad_(self.Gsig_obj_func, self.opt_m_sig, self.opt_v_sig, iter+1)
@@ -717,8 +750,8 @@ class MetMulColide(MetMulDagma):
             )
 
             # Closed form solucion of Sigma
-            v_aux = self.quadratic_diag_(W)
-            Sigma = np.maximum( np.sqrt(v_aux), self.Sigma_0 )
+            q_agg, n_shared = self.sigma_stats_(W)
+            Sigma = np.maximum( np.sqrt(q_agg / n_shared), self.Sigma_0 )
 
             # Update tracking variables
             if self.should_track_iteration_(i, max_iters, checkpoint, track_seq):
