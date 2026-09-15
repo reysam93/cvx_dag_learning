@@ -41,6 +41,11 @@ import matplotlib.pyplot as plt
 import numpy as np
 from joblib import Parallel, delayed
 from sklearn.metrics import f1_score
+import warnings
+
+# Methods without Sigma leave NaN columns in err_sig; silence the nan-aggregation warnings.
+for _msg in ("All-NaN slice encountered", "Mean of empty slice", "Degrees of freedom <= 0 for slice"):
+    warnings.filterwarnings("ignore", message=_msg, category=RuntimeWarning)
 
 import src.utils as utils
 from src.model import MetMulDagma, MetMulColide
@@ -87,6 +92,19 @@ signal.signal(signal.SIGTERM, _handle_termination)
 
 def get_lamb_value(n_nodes, n_samples, times=1):
     return np.sqrt(np.log(n_nodes) / n_samples) * times
+
+
+def seed_task(g, i=0):
+    """
+    Seed the numpy and python RNGs for DAG `g` and x-value index `i` inside the worker.
+    Module-level seeds are re-executed by every joblib worker that imports this module,
+    which made all workers generate the same DAG; per-task seeds give independent and
+    reproducible data regardless of the worker assignment. They also neutralize the
+    baselines that reset the global numpy RNG in their constructor (colide/dagma seed=0).
+    """
+    seed = (SEED * 1_000_003 + g * 1_009 + i) % (2 ** 32)
+    np.random.seed(seed)
+    random.seed(seed)
 
 
 # ---------------------------------------------------------------------------
@@ -142,6 +160,7 @@ def run_samples_exp(g, data_p, n_samples_values, exps, thr=.2, verb=False):
         if g % N_CPUS == 0:
             log_status(f"Graph: {g + 1}, samples: {n_samples}")
 
+        seed_task(g, i)
         data_p_aux = data_p.copy()
         data_p_aux["n_samples"] = n_samples
 
